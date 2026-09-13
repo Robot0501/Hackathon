@@ -1,0 +1,85 @@
+{
+  "theme": "Light theme with crisp dark mode toggle capability. Primary aesthetic: Swiss & High-Contrast meets Modern University Tech (Richfield & AAA Navy/Slate + Royal Blue + Warm Emerald/Coral accents).",
+  "typography": {
+    "font_family_headings": "Outfit, Cabinet Grotesk, sans-serif",
+    "font_family_body": "IBM Plex Sans, Inter, sans-serif",
+    "font_family_mono": "JetBrains Mono, monospace",
+    "scale": {
+      "h1_hero": "text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-none",
+      "h2_section": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight",
+      "h3_subsection": "text-xl sm:text-2xl font-semibold tracking-tight",
+      "h4_card": "text-lg sm:text-xl font-medium",
+      "body_large": "text-base sm:text-lg leading-relaxed text-slate-600 dark:text-slate-300",
+      "body_regular": "text-sm sm:text-base leading-relaxed text-slate-600 dark:text-slate-300",
+      "small_caption": "text-xs sm:text-sm font-medium tracking-wide uppercase text-slate-500 dark:text-slate-400"
+    }
+  },
+  "colors": {
+    "brand_primary": "#0F172A",
+    "brand_primary_accent": "#2563EB",
+    "brand_secondary_emerald": "#059669",
+    "brand_accent_coral": "#EA580C",
+    "background_light": "#F8FAFC",
+    "surface_card_light": "#FFFFFF",
+    "border_light": "#E2E8F0",
+    "text_primary_light": "#0F172A",
+    "text_muted_light": "#64748B",
+    "background_dark": "#090D16",
+    "surface_card_dark": "#111827",
+    "border_dark": "#1F2937",
+    "text_primary_dark": "#F8FAFC",
+    "text_muted_dark": "#94A3B8",
+    "role_badge_colors": {
+      "student": "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800",
+      "alumni": "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800",
+      "employer": "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800",
+      "admin": "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800"
+    },
+    "forbidden_colors": ["#7351B7", "#1B93A4"]
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-sm",
+    "card_style": "bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-200",
+    "active_card_border": "border-blue-500/50 dark:border-blue-500/50 ring-2 ring-blue-500/10",
+    "gradient_overlays": "bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-transparent",
+    "button_primary": "bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95",
+    "button_secondary": "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 font-medium px-5 py-2.5 rounded-lg transition-colors"
+  },
+  "responsive": {
+    "breakpoint": "mobile-first",
+    "mobile_nav": "Fixed bottom navigation bar on mobile screens (<= 768px) with 5 main action tabs: Home, Jobs, Community/Feed, Messages, Profile/Dashboard. Desktop uses sticky top glassmorphism navbar.",
+    "layout_reflow": "All desktop multi-column grids collapse to 1 column on mobile (<640px). Sidebars collapse into drawers or tabs. Hero sections stack visually with text first, visual card/preview second.",
+    "overflow_guard": "Ensure max-w-full overflow-hidden on outer containers, min-w-0 on flex/grid children to avoid mobile horizontal scroll glitches.",
+    "tap_targets": "Minimum touch target height 44px for buttons, nav items, input fields, and tab toggles."
+  },
+  "media": {
+    "image_urls": {
+      "hero_students_collaborating": "https://images.unsplash.com/photo-1520881363902-a0ff4e722963?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjB1bml2ZXJzaXR5JTIwc3R1ZGVudHMlMjBuZXR3b3JraW5nJTIwY2FyZWVyfGVufDB8fHx8MTc4OTExMTcyMnww&ixlib=rb-4.1.0&q=85",
+      "alumni_networking_event": "https://images.unsplash.com/photo-1530099486328-e021101a494a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB1bml2ZXJzaXR5JTIwc3R1ZGVudHMlMjBuZXR3b3JraW5nJTIwY2FyZWVyfGVufDB8fHx8MTc4OTExMTcyMnww&ixlib=rb-4.1.0&q=85",
+      "lecture_discussion": "https://images.unsplash.com/photo-1758270704763-22072a90d3b6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjB1bml2ZXJzaXR5JTIwc3R1ZGVudHMlMjBuZXR3b3JraW5nJTIwY2FyZWVyfGVufDB8fHx8MTc4OTExMTcyMnww&ixlib=rb-4.1.0&q=85",
+      "group_laptop_project": "https://images.unsplash.com/photo-1758270705317-3ef6142d306f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjB1bml2ZXJzaXR5JTIwc3R1ZGVudHMlMjBuZXR3b3JraW5nJTIwY2FyZWVyfGVufDB8fHx8MTc4OTExMTcyMnww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "component_specifications": {
+    "landing_page": "Hero with badge ('Richfield & AAA Employability Network'), bold typography, dynamic live metrics ticker, benefits breakdown for Students/Alumni/Employers, interactive AI Assistant preview card, and clear CTA.",
+    "auth_and_verification": "Role selector (Student, Alumni, Employer, Admin). Alumni verification form with graduation year & degree ID. Employer verification with company registration & domain approval status.",
+    "profile_page": "LinkedIn-style banner + avatar + headline + completion progress bar. Skills list with endorsement counters, recommendations section, and activity history.",
+    "application_pipeline": "Kanban-style application tracker (Applied -> Under Review -> Shortlisted -> Interview -> Accepted/Rejected) with drag or quick-status update buttons.",
+    "ai_features": "Job match percentage gauge with match breakdown bullet points. Career path interactive roadmap node explorer. AI CV Upload parser with extraction preview dialog.",
+    "social_feed": "Feed with post creator (text, image, video attachment mock), likes, comments, author badges, and role filter tabs.",
+    "dashboards": "Role-specific metric cards with Recharts graphs (Employability scores, Application trends, Employer candidate conversion, Admin audit/moderation logs)."
+  },
+  "instructions_to_main_agent": [
+    "Ensure ALL interactive elements (buttons, inputs, tabs, modal triggers, links) have explicit data-testid attributes.",
+    "Use Lucide icons for UI controls and standardizing icon sizes (w-4 h-4 or w-5 h-5).",
+    "Make sure every tab switch and modal opening is responsive and includes state persistence where applicable.",
+    "Include simulated real-time notifications with Sonner toast triggers.",
+    "Follow mobile-first layout rules: cards full width on mobile, stack navigation neatly, and provide a mobile bottom navigation bar."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Avoid generic centered slop layout. Use strong asymmetric visual hierarchy.",
+    "Every interaction needs micro-animations and visible hover/focus states.",
+    "Never use dark full-screen gradients. Keep surfaces solid or tinted with subtle border definition.",
+    "Ensure contrast meets APCA/WCAG standards with explicit hover text colors."
+  ]
+}
