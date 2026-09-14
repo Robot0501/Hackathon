@@ -1,0 +1,6 @@
+{
+  "name": "Enrich - Richfield College Career & Community Platform",
+  "description": "Institutional professional ecosystem for Richfield College connecting verified students (@my.richfield.ac.za), alumni, recruiters, and administrators with AI profile guidance and smart matching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
