@@ -122,5 +122,3 @@ PORT=3000
 - Camera/video capture for pitch (`expo-image-picker`, `expo-av` full playback)
 - `expo-secure-store` for persisted auth
 - EAS Update/OTA
-
-Original AI Studio: https://ai.studio/apps/c72dad33-119a-44e4-9552-df8eaff43045

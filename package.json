@@ -4,14 +4,22 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --host lan --clear",
+    "start:lan": "expo start --host lan --clear",
+    "start:localhost": "expo start --host localhost --clear",
+    "start:tunnel": "expo start --tunnel --clear",
     "android": "expo start --android",
+    "android:dev": "expo run:android",
+    "android:apk": "eas build --platform android --profile preview --local",
+    "android:apk:cloud": "eas build --platform android --profile preview",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "server": "tsx server.ts",
     "server:build": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "server:start": "node dist/server.cjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prebuild": "expo prebuild --clean",
+    "prebuild:android": "expo prebuild --platform android --clean"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -22,6 +30,7 @@
     "dotenv": "^17.2.3",
     "expo": "~57.0.22",
     "expo-av": "~16.0.7",
+    "expo-dev-client": "~5.0.20",
     "expo-file-system": "~57.0.7",
     "expo-image-picker": "~57.0.17",
     "expo-linear-gradient": "~57.0.2",
