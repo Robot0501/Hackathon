@@ -25,9 +25,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.richfield.enrich",
-      "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
-      "permissions": ["android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE"]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png",
