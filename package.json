@@ -32,13 +32,16 @@
     "lucide-react-native": "^0.546.0",
     "nodemailer": "^10.0.9",
     "react": "19.2.3",
+    "react-dom": "^19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-worklets": "0.10.1"
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1",
+    "react-refresh": "^0.14.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
