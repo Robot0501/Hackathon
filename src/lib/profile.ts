@@ -73,14 +73,57 @@ export async function fetchProfile(userId: string): Promise<UserProfile | null> 
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('Could not load profile:', error);
     return null;
   }
 
-  return profileFromRow(data);
+  return data ? profileFromRow(data) : null;
+}
+
+export async function fetchAllProfiles(): Promise<UserProfile[]> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  const profiles = (data || []).map(profileFromRow);
+
+  const { data: endorsements, error: endorsementError } = await supabase
+    .from('endorsements')
+    .select('profile_id, skill, endorsed_by_name');
+
+  if (endorsementError) {
+    console.warn('Could not load normalized endorsements:', endorsementError);
+    return profiles;
+  }
+
+  const grouped = new Map<string, Map<string, string[]>>();
+  for (const row of endorsements || []) {
+    if (!grouped.has(row.profile_id)) grouped.set(row.profile_id, new Map());
+    const skills = grouped.get(row.profile_id)!;
+    const key = String(row.skill || '').trim();
+    if (!skills.has(key)) skills.set(key, []);
+    skills.get(key)!.push(row.endorsed_by_name || 'Enrich member');
+  }
+
+  return profiles.map((profile) => {
+    const skills = grouped.get(profile.id);
+    if (!skills) return profile;
+
+    return {
+      ...profile,
+      endorsements: Array.from(skills.entries()).map(([skill, endorsedBy]) => ({
+        skill,
+        count: endorsedBy.length,
+        endorsedBy,
+      })),
+    };
+  });
 }
 
 export async function saveProfile(profile: UserProfile): Promise<UserProfile> {
@@ -90,9 +133,6 @@ export async function saveProfile(profile: UserProfile): Promise<UserProfile> {
     .select()
     .single();
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return profileFromRow(data);
 }

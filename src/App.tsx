@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   MOCK_USERS,
   MOCK_OPPORTUNITIES,
@@ -28,11 +28,34 @@ import { AdminPanelView } from './components/AdminPanelView';
 import { ProfileView } from './components/ProfileView';
 import { VerificationModal } from './components/VerificationModal';
 import { LoginModal } from './components/LoginModal';
+import { supabase, isUuid } from './lib/supabase';
+import { fetchProfile } from './lib/profile';
+import {
+  addComment,
+  addEndorsement,
+  addPost,
+  applyForOpportunity,
+  broadcastAnnouncement,
+  createEvent,
+  createNotification,
+  deleteEvent,
+  deletePost,
+  loadPlatformData,
+  markAllNotificationsRead,
+  markNotificationRead,
+  postOpportunity,
+  sendConnectionRequest,
+  sendMessage,
+  setBusinessApproval,
+  setConnectionStatus,
+  setOpportunityStatus,
+  toggleEventRsvp,
+  togglePostLike,
+  updateProfile,
+} from './lib/enrichData';
 
 export default function App() {
-  // App state
   const [users, setUsers] = useState<UserProfile[]>(MOCK_USERS);
-  // Default to null so user arrives at the HomePage where registration and first-time login begin
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<string>('feed');
   const [isMobileFrame, setIsMobileFrame] = useState(false);
@@ -40,292 +63,290 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [registerInitialRole, setRegisterInitialRole] = useState<UserRole>('student');
 
-  // Platform Collections
   const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
   const [opportunities, setOpportunities] = useState<Opportunity[]>(MOCK_OPPORTUNITIES);
   const [events, setEvents] = useState<RichfieldEvent[]>(MOCK_EVENTS);
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [connections, setConnections] = useState<Record<string, 'pending' | 'accepted' | 'declined'>>({});
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
-  // Networking & Chat State
-  const [connections, setConnections] = useState<{ [userId: string]: 'pending' | 'accepted' | 'declined' }>({
-    'user-alumni-1': 'accepted',
-  });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg-init-1',
-      senderId: 'user-alumni-1',
-      receiverId: 'user-student-1',
-      text: 'Sawubona! Impressive work on your React portfolio. Are you attending the Richfield recruitment session next Tuesday?',
-      timestamp: 'Yesterday at 14:20'
-    },
-    {
-      id: 'msg-init-2',
-      senderId: 'user-student-1',
-      receiverId: 'user-alumni-1',
-      text: 'Thanks Lerato! Yes, I registered and uploaded my pitch video on Enrich. Would love any tips you have for standard graduate assessments.',
-      timestamp: 'Yesterday at 15:05'
+  const isRealUser = Boolean(currentUser && isUuid(currentUser.id));
+
+  const refreshPlatform = async (user: UserProfile) => {
+    if (!isUuid(user.id)) return;
+    try {
+      const data = await loadPlatformData(user.id);
+      setUsers(data.users.length ? data.users : [user]);
+      setPosts(data.posts);
+      setOpportunities(data.opportunities);
+      setEvents(data.events);
+      setNotifications(data.notifications);
+      setConnections(data.connections);
+      setChatMessages(data.chatMessages);
+    } catch (error) {
+      console.error('Failed to load Supabase platform data:', error);
     }
-  ]);
-
-  // Feed Actions
-  const handleAddPost = (newPost: Post) => {
-    setPosts([newPost, ...posts]);
   };
 
-  const handleLikePost = (postId: string) => {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const hasLiked = !p.hasLiked;
-          return {
-            ...p,
-            hasLiked,
-            likes: hasLiked ? p.likes + 1 : p.likes - 1,
-          };
-        }
-        return p;
-      })
-    );
+  useEffect(() => {
+    let mounted = true;
+
+    const restore = async () => {
+      const { data } = await supabase.auth.getSession();
+      const authUser = data.session?.user;
+      if (!authUser || !mounted) return;
+
+      const profile = await fetchProfile(authUser.id);
+      if (!profile || !mounted) return;
+      setCurrentUser(profile);
+      setActiveTab(profile.role === 'admin' ? 'admin' : 'feed');
+      await refreshPlatform(profile);
+    };
+
+    restore();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session && mounted) setCurrentUser(null);
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (currentUser && isUuid(currentUser.id)) {
+      refreshPlatform(currentUser);
+    }
+  }, [currentUser?.id]);
+
+  const handleLogout = async () => {
+    if (isRealUser) await supabase.auth.signOut();
+    setCurrentUser(null);
+    setActiveTab('feed');
+    setUsers(MOCK_USERS);
+    setPosts(MOCK_POSTS);
+    setOpportunities(MOCK_OPPORTUNITIES);
+    setEvents(MOCK_EVENTS);
+    setNotifications(INITIAL_NOTIFICATIONS);
+    setConnections({});
+    setChatMessages([]);
   };
 
-  const handleAddComment = (postId: string, commentText: string) => {
+  const handleAddPost = async (newPost: Post) => {
+    setPosts((prev) => [newPost, ...prev]);
+    if (!isRealUser) return;
+    try { await addPost(newPost); }
+    catch (error) { console.error(error); await refreshPlatform(currentUser!); }
+  };
+
+  const handleLikePost = async (postId: string) => {
     if (!currentUser) return;
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const newComment = {
-            id: `comm-${Date.now()}`,
-            authorId: currentUser.id,
-            authorName: currentUser.name,
-            authorRole: currentUser.role,
-            authorAvatar: currentUser.avatar,
-            content: commentText,
-            timestamp: 'Just now',
-          };
-          return {
-            ...p,
-            comments: [...p.comments, newComment],
-          };
-        }
-        return p;
-      })
-    );
+    if (!isRealUser) {
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, hasLiked: !p.hasLiked, likes: p.hasLiked ? p.likes - 1 : p.likes + 1 } : p));
+      return;
+    }
+
+    try {
+      const liked = await togglePostLike(postId, currentUser.id);
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, hasLiked: liked, likes: p.likes + (liked ? 1 : -1) } : p));
+    } catch (error) { console.error(error); }
   };
 
-  // Opportunities Actions
-  const handleApplyOpportunity = (oppId: string) => {
-    setOpportunities((prev) =>
-      prev.map((o) => (o.id === oppId ? { ...o, applied: true, applicantsCount: o.applicantsCount + 1 } : o))
-    );
+  const handleAddComment = async (postId: string, commentText: string) => {
+    if (!currentUser) return;
+    if (!isRealUser) {
+      const localComment = {
+        id: `comm-${Date.now()}`,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorRole: currentUser.role,
+        authorAvatar: currentUser.avatar,
+        content: commentText,
+        timestamp: 'Just now',
+      };
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: [...p.comments, localComment] } : p));
+      return;
+    }
 
+    try {
+      const comment = await addComment(postId, currentUser, commentText);
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: [...p.comments, comment] } : p));
+    } catch (error) { console.error(error); }
+  };
+
+  const handleApplyOpportunity = async (oppId: string) => {
+    if (!currentUser) return;
+    setOpportunities((prev) => prev.map((o) => o.id === oppId ? { ...o, applied: true, applicantsCount: o.applicantsCount + (o.applied ? 0 : 1) } : o));
     const targetOpp = opportunities.find((o) => o.id === oppId);
     const notif: NotificationItem = {
       id: `notif-${Date.now()}`,
       title: 'Application Dispatched',
       message: `Your verified Richfield dossier has been submitted for: ${targetOpp?.title || 'Graduate Role'}.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'opportunity'
+      timestamp: 'Just now', read: false, type: 'opportunity'
     };
-    setNotifications([notif, ...notifications]);
+    setNotifications((prev) => [notif, ...prev]);
+    if (!isRealUser) return;
+    try {
+      await applyForOpportunity(oppId, currentUser.id);
+      await createNotification(currentUser.id, notif);
+    } catch (error) { console.error(error); }
   };
 
-  const handlePostOpportunity = (newOpp: Opportunity) => {
-    setOpportunities([newOpp, ...opportunities]);
+  const handlePostOpportunity = async (newOpp: Opportunity) => {
+    if (!currentUser) return;
+    setOpportunities((prev) => [newOpp, ...prev]);
     if (newOpp.status === 'pending_approval') {
       const notif: NotificationItem = {
         id: `notif-biz-${Date.now()}`,
         title: 'Opportunity Under Vetting',
         message: `Your posting "${newOpp.title}" has been submitted to the Richfield Placement Office for approval.`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'opportunity'
+        timestamp: 'Just now', read: false, type: 'opportunity'
       };
-      setNotifications([notif, ...notifications]);
+      setNotifications((prev) => [notif, ...prev]);
+      if (isRealUser) await createNotification(currentUser.id, notif).catch(console.error);
     }
+    if (!isRealUser) return;
+    await postOpportunity(newOpp, currentUser.id).catch(console.error);
   };
 
-  const handleRsvpEvent = (eventId: string) => {
-    setEvents((prev) =>
-      prev.map((ev) =>
-        ev.id === eventId
-          ? {
-              ...ev,
-              hasRsvp: !ev.hasRsvp,
-              rsvpCount: ev.hasRsvp ? ev.rsvpCount - 1 : ev.rsvpCount + 1,
-            }
-          : ev
-      )
-    );
-  };
-
-  // Networking Actions
-  const handleSendConnectionRequest = (targetUserId: string) => {
-    setConnections((prev) => ({ ...prev, [targetUserId]: 'pending' }));
-    const target = users.find((u) => u.id === targetUserId);
-    const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      title: 'Connection Request Sent',
-      message: `Your invitation was sent to ${target?.name || 'Richfield member'}.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'connection'
-    };
-    setNotifications([notif, ...notifications]);
-  };
-
-  const handleAcceptConnectionRequest = (targetUserId: string) => {
-    setConnections((prev) => ({ ...prev, [targetUserId]: 'accepted' }));
-  };
-
-  const handleDeclineConnectionRequest = (targetUserId: string) => {
-    setConnections((prev) => ({ ...prev, [targetUserId]: 'declined' }));
-  };
-
-  const handleSendMessage = (receiverId: string, text: string) => {
+  const handleRsvpEvent = async (eventId: string) => {
     if (!currentUser) return;
-    const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      senderId: currentUser.id,
-      receiverId,
-      text,
-      timestamp: 'Just now',
-    };
-    setChatMessages((prev) => [...prev, newMsg]);
+    if (!isRealUser) {
+      setEvents((prev) => prev.map((ev) => ev.id === eventId ? { ...ev, hasRsvp: !ev.hasRsvp, rsvpCount: ev.hasRsvp ? ev.rsvpCount - 1 : ev.rsvpCount + 1 } : ev));
+      return;
+    }
+    try {
+      const active = await toggleEventRsvp(eventId, currentUser.id);
+      setEvents((prev) => prev.map((ev) => ev.id === eventId ? { ...ev, hasRsvp: active, rsvpCount: ev.rsvpCount + (active ? 1 : -1) } : ev));
+    } catch (error) { console.error(error); }
   };
 
-  // Profile Updates & Endorsements
-  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
+  const handleSendConnectionRequest = async (targetUserId: string) => {
+    if (!currentUser) return;
+    setConnections((prev) => ({ ...prev, [targetUserId]: 'pending' }));
+    if (!isRealUser || !isUuid(targetUserId)) return;
+    await sendConnectionRequest(currentUser.id, targetUserId).catch(console.error);
+  };
+
+  const handleAcceptConnectionRequest = async (targetUserId: string) => {
+    if (!currentUser) return;
+    setConnections((prev) => ({ ...prev, [targetUserId]: 'accepted' }));
+    if (!isRealUser || !isUuid(targetUserId)) return;
+    await setConnectionStatus(currentUser.id, targetUserId, 'accepted').catch(console.error);
+  };
+
+  const handleDeclineConnectionRequest = async (targetUserId: string) => {
+    if (!currentUser) return;
+    setConnections((prev) => ({ ...prev, [targetUserId]: 'declined' }));
+    if (!isRealUser || !isUuid(targetUserId)) return;
+    await setConnectionStatus(currentUser.id, targetUserId, 'declined').catch(console.error);
+  };
+
+  const handleSendMessage = async (receiverId: string, text: string) => {
+    if (!currentUser) return;
+    const newMsg: ChatMessage = { id: `msg-${Date.now()}`, senderId: currentUser.id, receiverId, text, timestamp: 'Just now' };
+    setChatMessages((prev) => [...prev, newMsg]);
+    if (!isRealUser || !isUuid(receiverId)) return;
+    await sendMessage(newMsg).catch(console.error);
+  };
+
+  const handleUpdateProfile = async (updated: Partial<UserProfile>) => {
     if (!currentUser) return;
     const updatedUser = { ...currentUser, ...updated };
     setCurrentUser(updatedUser);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+    setUsers((prev) => prev.map((u) => u.id === currentUser.id ? updatedUser : u));
+    if (!isRealUser) return;
+    await updateProfile(updatedUser).catch(console.error);
   };
 
-  const handleAddEndorsement = (targetUserId: string, skill: string) => {
+  const handleAddEndorsement = async (targetUserId: string, skill: string) => {
     if (!currentUser) return;
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === targetUserId) {
-          const existing = u.endorsements.find((e) => e.skill.toLowerCase() === skill.toLowerCase());
-          if (existing) {
-            if (existing.endorsedBy.includes(currentUser.name)) return u;
-            return {
-              ...u,
-              endorsements: u.endorsements.map((e) =>
-                e.skill.toLowerCase() === skill.toLowerCase()
-                  ? { ...e, count: e.count + 1, endorsedBy: [...e.endorsedBy, currentUser.name] }
-                  : e
-              ),
-            };
-          } else {
-            return {
-              ...u,
-              endorsements: [
-                ...u.endorsements,
-                { skill, count: 1, endorsedBy: [currentUser.name] },
-              ],
-            };
-          }
-        }
-        return u;
-      })
-    );
+    setUsers((prev) => prev.map((u) => {
+      if (u.id !== targetUserId) return u;
+      const existing = u.endorsements.find((e) => e.skill.toLowerCase() === skill.toLowerCase());
+      if (existing?.endorsedBy.includes(currentUser.name)) return u;
+      if (existing) return { ...u, endorsements: u.endorsements.map((e) => e.skill.toLowerCase() === skill.toLowerCase() ? { ...e, count: e.count + 1, endorsedBy: [...e.endorsedBy, currentUser.name] } : e) };
+      return { ...u, endorsements: [...u.endorsements, { skill, count: 1, endorsedBy: [currentUser.name] }] };
+    }));
+    if (!isRealUser || !isUuid(targetUserId)) return;
+    await addEndorsement(targetUserId, skill, currentUser).catch(console.error);
   };
 
-  // Admin Actions
-  const handleApproveBusiness = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === userId) {
-          return {
-            ...u,
-            verificationStatus: 'verified',
-            businessDetails: u.businessDetails
-              ? { ...u.businessDetails, approvalStatus: 'approved' }
-              : undefined,
-          };
-        }
-        return u;
-      })
-    );
+  const handleApproveBusiness = async (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, verificationStatus: 'verified', businessDetails: u.businessDetails ? { ...u.businessDetails, approvalStatus: 'approved' } : undefined } : u));
+    if (isRealUser && isUuid(userId)) await setBusinessApproval(user, 'approved').catch(console.error);
   };
 
-  const handleRejectBusiness = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === userId) {
-          return {
-            ...u,
-            verificationStatus: 'rejected',
-            businessDetails: u.businessDetails
-              ? { ...u.businessDetails, approvalStatus: 'rejected' }
-              : undefined,
-          };
-        }
-        return u;
-      })
-    );
+  const handleRejectBusiness = async (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, verificationStatus: 'rejected', businessDetails: u.businessDetails ? { ...u.businessDetails, approvalStatus: 'rejected' } : undefined } : u));
+    if (isRealUser && isUuid(userId)) await setBusinessApproval(user, 'rejected').catch(console.error);
   };
 
-  const handleApproveOpportunity = (oppId: string) => {
-    setOpportunities((prev) =>
-      prev.map((o) => (o.id === oppId ? { ...o, status: 'approved' } : o))
-    );
+  const handleApproveOpportunity = async (oppId: string) => {
+    setOpportunities((prev) => prev.map((o) => o.id === oppId ? { ...o, status: 'approved' } : o));
+    if (isRealUser) await setOpportunityStatus(oppId, 'approved').catch(console.error);
   };
 
-  const handleRejectOpportunity = (oppId: string) => {
-    setOpportunities((prev) =>
-      prev.map((o) => (o.id === oppId ? { ...o, status: 'rejected' } : o))
-    );
+  const handleRejectOpportunity = async (oppId: string) => {
+    setOpportunities((prev) => prev.map((o) => o.id === oppId ? { ...o, status: 'rejected' } : o));
+    if (isRealUser) await setOpportunityStatus(oppId, 'rejected').catch(console.error);
   };
 
-  const handleDeletePost = (postId: string) => {
+  const handleDeletePost = async (postId: string) => {
     setPosts((prev) => prev.filter((p) => p.id !== postId));
+    if (isRealUser) await deletePost(postId).catch(console.error);
   };
 
-  const handleCreateEvent = (event: RichfieldEvent) => {
-    setEvents([event, ...events]);
+  const handleCreateEvent = async (event: RichfieldEvent) => {
+    setEvents((prev) => [event, ...prev]);
+    if (isRealUser) await createEvent(event).catch(console.error);
   };
 
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = async (eventId: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    if (isRealUser) await deleteEvent(eventId).catch(console.error);
   };
 
-  const handleBroadcastAnnouncement = (
+  const handleBroadcastAnnouncement = async (
     title: string,
     message: string,
     target: 'all' | 'students' | 'alumni' | 'business'
   ) => {
-    const newNotif: NotificationItem = {
-      id: `ann-${Date.now()}`,
-      title: `Richfield Notice: ${title}`,
-      message,
-      timestamp: 'Just now',
-      read: false,
-      type: 'announcement'
-    };
-    setNotifications([newNotif, ...notifications]);
+    const newNotif: NotificationItem = { id: `ann-${Date.now()}`, title: `Richfield Notice: ${title}`, message, timestamp: 'Just now', read: false, type: 'announcement' };
+    setNotifications((prev) => [newNotif, ...prev]);
+    if (isRealUser) await broadcastAnnouncement(title, message, target).catch(console.error);
   };
 
-  // Registration callback
-  const handleRegisterSuccess = (newUser: UserProfile) => {
-    setUsers([newUser, ...users]);
+  const handleMarkNotificationRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+    if (isRealUser) await markNotificationRead(id).catch(console.error);
+  };
+
+  const handleClearAllNotifications = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (currentUser && isRealUser) await markAllNotificationsRead(currentUser.id).catch(console.error);
+  };
+
+  const handleRegisterSuccess = async (newUser: UserProfile) => {
+    setUsers((prev) => [newUser, ...prev.filter((u) => u.id !== newUser.id)]);
     setCurrentUser(newUser);
     setActiveTab(newUser.role === 'admin' ? 'admin' : 'profile');
-
     const welcomeNotif: NotificationItem = {
       id: `welcome-${Date.now()}`,
       title: 'Institutional Verification Confirmed',
       message: `Welcome to Enrich for Richfield College, ${newUser.name}! Your ${newUser.role} profile is active.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'verification'
+      timestamp: 'Just now', read: false, type: 'verification'
     };
-    setNotifications([welcomeNotif, ...notifications]);
+    setNotifications((prev) => [welcomeNotif, ...prev]);
+    if (isUuid(newUser.id)) await createNotification(newUser.id, welcomeNotif).catch(console.error);
   };
 
-  // Handle opening registration from any entry point
   const handleOpenRegistration = (role: UserRole = 'student') => {
     setRegisterInitialRole(role);
     setIsAuthModalOpen(true);
@@ -348,18 +369,12 @@ export default function App() {
               if (user.role === 'admin') setActiveTab('admin');
             }}
             onOpenAuthModal={() => handleOpenRegistration('student')}
-            onLogout={() => setCurrentUser(null)}
+            onLogout={handleLogout}
             isMobileFrame={isMobileFrame}
             onToggleMobileFrame={() => setIsMobileFrame(!isMobileFrame)}
             notifications={notifications}
-            onMarkNotificationRead={(id) =>
-              setNotifications((prev) =>
-                prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-              )
-            }
-            onClearAllNotifications={() =>
-              setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-            }
+            onMarkNotificationRead={handleMarkNotificationRead}
+            onClearAllNotifications={handleClearAllNotifications}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
           />
@@ -368,7 +383,7 @@ export default function App() {
           <RoleContextBanner
             currentUser={currentUser}
             onNavigateTab={setActiveTab}
-            onLogout={() => setCurrentUser(null)}
+            onLogout={handleLogout}
           />
 
           {/* Main Tab Navigation */}
