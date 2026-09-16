@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Calendar, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { RichfieldEvent } from '../types';
-import { createEvent, deleteEvent } from '../lib/dataService';
+import { deleteEvent } from '../lib/dataService';
 
 export const EventsPage: React.FC = () => {
   const [events, setEvents] = useState<RichfieldEvent[]>([]);
@@ -36,42 +36,70 @@ export const EventsPage: React.FC = () => {
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const ev: RichfieldEvent = {
-      id: `ev-${Date.now()}`,
+  e.preventDefault();
+
+  if (!title.trim()) {
+    alert('Please enter an event title.');
+    return;
+  }
+
+  try {
+    // Get the currently logged-in Admin
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      throw sessionError;
+    }
+
+    const uid = session?.user?.id;
+
+    if (!uid) {
+      alert('You must be signed in as an administrator to publish an event.');
+      return;
+    }
+
+    const campus = location.includes('Pretoria')
+      ? 'Pretoria Campus'
+      : 'Braamfontein Campus';
+
+    // Create the event once using the real Admin ID
+    const { error } = await supabase.from('events').insert({
       title: title.trim(),
       type,
-      date,
-      time,
+      date: date,
+      time: time,
       location,
-      campus: location.includes('Pretoria') ? 'Pretoria Campus' : 'Braamfontein Campus',
+      campus,
+      description: description.trim() || 'Official institutional event.',
       organizer: 'Richfield Academic Administration',
-      description: description || 'Official institutional event.',
-      rsvpCount: 0,
-      hasRsvp: false,
-    };
-    await createEvent('00000000-0000-0000-0000-000000000000', ev); // created_by will be set via RLS? Use auth user
-    // Workaround: dataService.createEvent expects userId, but we pass auth user
-    const { data: session } = await supabase.auth.getSession();
-    const uid = session.session?.user?.id;
-    if (uid) {
-      await supabase.from('events').insert({
-        title: ev.title,
-        type: ev.type,
-        date_label: ev.date,
-        time_label: ev.time,
-        location: ev.location,
-        campus: ev.campus,
-        description: ev.description,
-        organizer: ev.organizer,
-        created_by: uid,
-      });
+      created_by: uid,
+    });
+
+    if (error) {
+      throw error;
     }
+
+    alert('Event published successfully.');
+
+    // Clear the form
     setTitle('');
     setDescription('');
+
+    // Refresh event list
     await load();
-  };
+  } catch (error: any) {
+    console.error('Event publishing error:', error);
+
+    alert(
+      `Could not publish event: ${
+        error?.message || 'Unknown error'
+      }`
+    );
+  }
+};
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this event?')) return;

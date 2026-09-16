@@ -46,7 +46,7 @@ export const LoginPage: React.FC = () => {
             <div className="w-9 h-9 rounded-xl bg-[#1E3A8A] border border-blue-600 flex items-center justify-center font-black">R</div>
             <div>
               <div className="font-bold">Enrich Admin</div>
-              <div className="text-xs text-slate-400">Richfield College • Prototype</div>
+              <div className="text-xs text-slate-400">Richfield College</div>
             </div>
           </div>
           <div className="mt-16 max-w-md">
@@ -70,7 +70,7 @@ export const LoginPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="text-[11px] text-slate-500">© {new Date().getFullYear()} Richfield College (Pty) Ltd • Prototype - not hosted</div>
+        <div className="text-[11px] text-slate-500">© {new Date().getFullYear()} Richfield College (Pty) Ltd </div>
       </div>
 
       {/* Right - Form */}

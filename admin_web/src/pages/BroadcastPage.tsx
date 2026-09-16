@@ -68,10 +68,6 @@ export const BroadcastPage: React.FC = () => {
             <Send size={14} /> {loading ? 'Dispatching…' : 'Dispatch Broadcast'}
           </button>
         </form>
-
-        <div className="mt-6 p-3 rounded-xl bg-slate-50 border text-[11px] text-slate-600 leading-relaxed">
-          <span className="font-bold">Prototype note:</span> This writes directly to Supabase <code className="bg-white px-1 rounded border">notifications</code>. Mobile users see it after next <code className="bg-white px-1 rounded border">listNotifications()</code> refresh or realtime.
-        </div>
       </div>
     </div>
   );

@@ -76,9 +76,6 @@ export const DashboardPage: React.FC = () => {
             Deleting a post or broadcasting an announcement writes to `posts` / `notifications` → instantly visible in mobile after refresh (same DB).
           </div>
         </div>
-        <div className="mt-4 text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-xl p-3">
-          <span className="font-bold text-amber-800">Prototype:</span> No hosting. Run <code className="bg-white px-1 rounded border">npm run dev</code> in <code className="bg-white px-1 rounded border">admin_web/</code> and <code className="bg-white px-1 rounded border">npx expo start</code> in <code className="bg-white px-1 rounded border">mobile/</code> — both point to <code className="bg-white px-1 rounded border">uzwovrzquofdsqrzphlq.supabase.co</code>.
-        </div>
       </div>
     </div>
   );

@@ -78,7 +78,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <header className="sticky top-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <ShieldCheck size={14} className="text-emerald-600" />
-            <span>Live Supabase • Same DB as mobile • Prototype</span>
+            <span>Live Supabase • Same DB as mobile</span>
           </div>
           <div className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
             Admin: {user?.name}
