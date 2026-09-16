@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-rich-purple: #2B193D;
+  --color-delft-blue: #2C365E;
+  --color-ultra-violet: #484D6D;
+  --color-dark-cyan: #4B8F8C;
+  --color-rosy-brown: #C5979D;
+  --font-display: 'Outfit', sans-serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+* {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
