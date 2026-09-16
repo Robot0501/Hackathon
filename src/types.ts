@@ -81,6 +81,9 @@ export interface UserProfile {
   cvFileName?: string;
   profileCompleteness: number; // 0 - 100
   businessDetails?: BusinessDetails;
+  // Supabase-backed presentation directory records are visible in discovery,
+  // but cannot authenticate, receive messages, or accept connections.
+  isShowcase?: boolean;
 }
 
 export interface Comment {
@@ -114,6 +117,7 @@ export interface Post {
   comments: Comment[];
   flagged?: boolean;
   targetAudience: 'all' | 'students' | 'alumni' | 'business';
+  isShowcase?: boolean;
 }
 
 export interface Opportunity {
@@ -136,6 +140,20 @@ export interface Opportunity {
   applicantsCount: number;
   applied?: boolean;
   matchScore?: number;
+  isShowcase?: boolean;
+}
+
+export interface JobApplication {
+  id: string;
+  opportunityId: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  availability: string;
+  motivation: string;
+  status: 'submitted' | 'reviewing' | 'shortlisted' | 'rejected' | 'accepted';
+  createdAt: string;
 }
 
 export interface RichfieldEvent {
@@ -151,6 +169,7 @@ export interface RichfieldEvent {
   rsvpCount: number;
   hasRsvp: boolean;
   speaker?: string;
+  isShowcase?: boolean;
 }
 
 export interface Connection {
@@ -195,4 +214,24 @@ export interface AlumniCareerTrajectory {
     highlight: string;
   }[];
   advice: string;
+}
+
+export interface QuestionAnswer {
+  id: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface QuestionThread {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  title: string;
+  body: string;
+  timestamp: string;
+  answers: QuestionAnswer[];
+  isShowcase?: boolean;
 }
