@@ -4,10 +4,76 @@ import { Sparkles, Bot, Send, FileText, RefreshCw, Lightbulb, AlertTriangle, Che
 import { useApp } from '../context/AppContext';
 import { theme } from '../theme';
 
+const API_TIMEOUT_MS = 6000;
+
+
+const OUT_OF_SCOPE_REPLY = `I’m Enrich AI, focused on Richfield career and employability support. I can help with CVs, interviews, internships, learnerships, job applications, skills, projects, portfolios, networking, alumni mentorship, LinkedIn, and using Enrich career features. I can’t help with unrelated topics. Try asking: “How can I improve my CV for a junior developer role?”`;
+
+function isCareerRelevantQuery(text: string) {
+  const q = text.trim().toLowerCase();
+  if (!q) return false;
+  const allowedTerms = [
+    'cv', 'resume', 'interview', 'job', 'career', 'intern', 'internship', 'learnership',
+    'opportun', 'apply', 'application', 'skill', 'project', 'portfolio', 'github', 'linkedin',
+    'network', 'mentor', 'alumni', 'cover letter', 'motivation', 'graduate', 'employ', 'work',
+    'salary', 'recruit', 'company', 'profile', 'richfield', 'enrich', 'course', 'qualification',
+    'study', 'student', 'certification', 'badge', 'experience', 'leadership', 'hackathon',
+    'hello', 'hi', 'hey', 'help', 'thank', 'thanks'
+  ];
+  return allowedTerms.some((term) => q.includes(term));
+}
+
+async function fetchJsonWithTimeout(url: string, options: any) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`AI service returned HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function localCareerReply(text: string, profile: any) {
+  const q = text.toLowerCase();
+  const name = profile?.name?.split(' ')[0] || 'there';
+  if (q.includes('cv') || q.includes('resume')) return `${name}, keep your CV to about two pages. Lead with your Richfield qualification, strongest technical skills, 2-3 practical projects, and measurable outcomes. Add GitHub/LinkedIn links and tailor the skills section to each opportunity.`;
+  if (q.includes('interview')) return `Use the STAR method for behavioural questions: Situation, Task, Action, Result. For technical interviews, be ready to explain one project end-to-end, including your role, database/design choices, testing, and what you would improve.`;
+  if (q.includes('job') || q.includes('intern') || q.includes('learnership') || q.includes('opportun')) return `Open Career Hub and compare your skills with the opportunity requirements. Prioritise roles where you meet the core requirements, then tailor your application motivation to the company and role instead of sending a generic message.`;
+  if (q.includes('skill')) return `For an IT profile, combine technical depth with evidence. Pick 4-6 skills you can demonstrate, then attach projects or repositories showing how you used them. SQL, Git, APIs, cloud fundamentals, testing and communication are strong graduate signals.`;
+  if (q.includes('project') || q.includes('portfolio') || q.includes('github')) return `Use Project Showcase to post a screenshot and project link. Explain the problem, your role, technology stack, one challenge you solved, and the final result. Recruiters value evidence more than a long list of tools.`;
+  if (q.includes('network') || q.includes('mentor') || q.includes('alumni')) return `Use Network to connect with verified alumni. Keep the first message short: introduce yourself, mention your Richfield programme, and ask one specific career question rather than immediately asking for a job.`;
+  if (q.includes('cover') || q.includes('motivation')) return `A strong motivation has three parts: why this role, what evidence you have that matches it, and what value you can bring. Keep it specific to the opportunity and avoid repeating your whole CV.`;
+  if (q.includes('linkedin')) return `Make your LinkedIn headline specific, for example “BSc IT Student | Java, SQL & Web Development | Seeking Graduate Software Opportunities”. Add your Richfield projects, certificates and GitHub link.`;
+  return OUT_OF_SCOPE_REPLY;
+}
+
+function localProfileAudit(profile: any) {
+  const skills = profile?.technicalSkills?.length || 0;
+  const hasPortfolio = !!(profile?.portfolioLinks?.github || profile?.portfolioLinks?.website || profile?.portfolioLinks?.linkedin);
+  const hasBadges = (profile?.digitalBadges?.length || 0) > 0;
+  const score = Math.min(94, Math.max(58, (profile?.profileCompleteness || 45) + Math.min(16, skills * 2) + (hasPortfolio ? 8 : 0) + (hasBadges ? 6 : 0)));
+  const missingSections = [!hasBadges ? 'Digital certifications / badges' : '', !hasPortfolio ? 'Portfolio or LinkedIn URL' : '', !profile?.careerAspirations ? 'Career goal' : ''].filter(Boolean);
+  return {
+    score,
+    summaryFeedback: `Your ${profile?.programme || 'Richfield'} profile has a solid foundation. Add evidence of practical work, measurable project outcomes, and recruiter-facing links to strengthen employer readiness.`,
+    suggestions: [
+      'Add 3-5 technical skills that match the roles you want to apply for.',
+      'Describe one practical project using the problem, technology stack, and result.',
+      'Keep your headline specific to your target role and strongest skills.',
+      'Add a GitHub, LinkedIn, portfolio, badge, or certification link where available.',
+    ],
+    missingSections,
+    marketFitInsight: 'South African graduate employers value practical evidence, communication, collaboration, database skills, cloud exposure, and a clear portfolio of applied work.',
+  };
+}
+
 export default function AIAssistantScreen() {
   const { currentUser, handleUpdateProfile } = useApp();
   const [activeTab, setActiveTab] = useState<'coach' | 'chatbot' | 'nlp_cv'>('coach');
-  const [coachAnalysis, setCoachAnalysis] = useState<any>(null);
+  const [coachAnalysis, setCoachAnalysis] = useState<any>(() => currentUser ? localProfileAudit(currentUser) : null);
+  const [aiSource, setAiSource] = useState<'local' | 'gemini'>('local');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{ sender: 'user' | 'assistant'; text: string; time: string }[]>([
@@ -35,19 +101,14 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
     setIsAnalyzing(true);
     try {
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000';
-      const res = await fetch(`${apiUrl}/api/gemini/profile-assistant`, {
+      const data = await fetchJsonWithTimeout(`${apiUrl}/api/gemini/profile-assistant`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: currentUser }),
       });
-      const data = await res.json();
       setCoachAnalysis(data);
+      setAiSource('gemini');
     } catch {
-      setCoachAnalysis({
-        score: currentUser.profileCompleteness || 85,
-        summaryFeedback: "Solid academic foundation. Highlighting industry projects and Credly badges will maximize recruiter traction.",
-        suggestions: ["Detail quantitative outcomes from coursework projects.", "Add a live demo URL for your top repository.", "Request skill endorsements from peers."],
-        missingSections: ["Digital Certifications / Badges", "Custom Portfolio URL"],
-        marketFitInsight: "High demand in South African enterprise for full-stack and cloud competencies."
-      });
+      setCoachAnalysis(localProfileAudit(currentUser));
+      setAiSource('local');
     } finally { setIsAnalyzing(false); }
   };
 
@@ -57,21 +118,23 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
     const newMsgs = [...chatMessages, { sender: 'user' as const, text: userText, time: 'Just now' }];
     setChatMessages(newMsgs);
     setChatInput('');
+
+    if (!isCareerRelevantQuery(userText)) {
+      setChatMessages((prev) => [...prev, { sender: 'assistant', text: OUT_OF_SCOPE_REPLY, time: 'Just now' }]);
+      return;
+    }
+
     setIsBotThinking(true);
     try {
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000';
-      const res = await fetch(`${apiUrl}/api/gemini/chat`, {
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+      if (!apiUrl) throw new Error('No live AI API configured');
+      const data = await fetchJsonWithTimeout(`${apiUrl}/api/gemini/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: newMsgs.map((m) => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })), userContext: { name: currentUser.name, role: currentUser.role, programme: currentUser.programme, campus: currentUser.campus } }),
       });
-      const data = await res.json();
-      setChatMessages((prev) => [...prev, { sender: 'assistant', text: data.reply || "I am here to guide your career path at Richfield College!", time: 'Just now' }]);
+      setChatMessages((prev) => [...prev, { sender: 'assistant', text: data.reply || localCareerReply(userText, currentUser), time: 'Just now' }]);
     } catch {
-      const last = userText.toLowerCase();
-      let reply = "Hello! I am Enrich AI, your Richfield Career & Networking Coach. How can I help you excel?";
-      if (last.includes('cv') || last.includes('resume')) reply = "For Richfield students, keep your CV concise (2 pages max). Emphasize qualification, stack, hackathons, and practical projects.";
-      else if (last.includes('interview')) reply = "Research the company's tech stack. Use STAR technique for behavioral questions. Let's practice a mock question!";
-      setChatMessages((prev) => [...prev, { sender: 'assistant', text: reply, time: 'Just now' }]);
+      setChatMessages((prev) => [...prev, { sender: 'assistant', text: localCareerReply(userText, currentUser), time: 'Just now' }]);
     } finally { setIsBotThinking(false); }
   };
 
@@ -80,8 +143,7 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
     setIsExtracting(true);
     try {
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000';
-      const res = await fetch(`${apiUrl}/api/gemini/nlp-cv`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cvText: cvInput }) });
-      const data = await res.json();
+      const data = await fetchJsonWithTimeout(`${apiUrl}/api/gemini/nlp-cv`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cvText: cvInput }) });
       setExtracted(data);
     } catch {
       setExtracted({
@@ -106,7 +168,7 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
   return (
     <View style={styles.container}>
       <View style={styles.banner}>
-        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><View style={styles.sparkBox}><Sparkles color="#fff" size={20} /></View><View><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Text style={styles.bannerTitle}>Enrich AI Career Intelligence</Text><View style={styles.geminiPill}><Text style={styles.geminiText}>Powered by Gemini</Text></View></View><Text style={styles.bannerSub}>Context-aware guidance, NLP CV extraction, mentoring.</Text></View></View>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><View style={styles.sparkBox}><Sparkles color="#fff" size={20} /></View><View><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Text style={styles.bannerTitle}>Enrich AI Career Intelligence</Text><View style={styles.geminiPill}><Text style={styles.geminiText}>{aiSource === 'gemini' ? 'Live Gemini' : 'Demo-safe AI'}</Text></View></View><Text style={styles.bannerSub}>Context-aware guidance, NLP CV extraction, mentoring.</Text></View></View>
         <View style={styles.pillRow}>
           {[
             { id: 'coach', label: 'Profile Coach' },
@@ -128,6 +190,7 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
                   <View style={styles.scoreBox}><Text style={styles.scoreLabel}>Employer Readiness Score</Text><Text style={styles.scoreVal}>{coachAnalysis.score}%</Text><Text style={styles.scoreSub}>Above Campus Avg (64%)</Text></View>
                   <View style={styles.summaryBox}><Text style={styles.summaryLabel}>Executive Evaluation:</Text><Text style={styles.summaryText}>{coachAnalysis.summaryFeedback}</Text></View>
                 </View>
+                <Text style={styles.aiSourceText}>{aiSource === 'gemini' ? 'Live Gemini analysis returned successfully.' : 'Using the built-in demo-safe career model. Start the Express API to use live Gemini.'}</Text>
                 <Text style={styles.sectionLabel}>Actionable Improvements</Text>
                 <View style={{ gap: 8 }}>{coachAnalysis.suggestions.map((s: string, i: number) => <View key={i} style={styles.suggestion}><Lightbulb color={theme.colors.darkCyan} size={14} /><Text style={styles.suggestionText}>{s}</Text></View>)}</View>
                 {coachAnalysis.missingSections?.length > 0 && <View style={styles.missing}><AlertTriangle color="#B45309" size={14} /><Text style={styles.missingText}>Missing: {coachAnalysis.missingSections.join(', ')}. Complete these to boost visibility.</Text></View>}
@@ -139,7 +202,7 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
 
         {activeTab === 'chatbot' && (
           <View style={styles.chatCard}>
-            <View style={styles.chatHeader}><View style={styles.botIcon}><Bot color="#fff" size={16} /></View><View><Text style={styles.chatTitle}>Enrich AI Career Mentor</Text><Text style={styles.chatSub}>Trained on Richfield curriculum & SA tech opportunities</Text></View><View style={styles.activePill}><Text style={styles.activeText}>Active Gemini Session</Text></View></View>
+            <View style={styles.chatHeader}><View style={styles.botIcon}><Bot color="#fff" size={16} /></View><View><Text style={styles.chatTitle}>Enrich AI Career Mentor</Text><Text style={styles.chatSub}>Richfield-focused career guidance with live Gemini when available</Text></View><View style={styles.activePill}><Text style={styles.activeText}>Career AI Session</Text></View></View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 40 }}>
               <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 6 }}>
                 {["How should I structure my final year project on my CV?", "What questions should I ask an alumni mentor?", "Which cloud certifications are most valued?", "Tips for the Richfield Hackathon"].map((q, i) => <TouchableOpacity key={i} onPress={() => setChatInput(q)} style={styles.quickPill}><Text style={styles.quickText}>{q}</Text></TouchableOpacity>)}
@@ -159,10 +222,10 @@ Frameworks: React, Node.js, Express, Tailwind CSS`);
         {activeTab === 'nlp_cv' && (
           <View style={styles.card}>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}><FileText color={theme.colors.darkCyan} size={18} /><Text style={styles.cardTitle}>NLP Resume & CV Extraction</Text></View>
-            <Text style={styles.cardSub}>Paste your CV. Gemini NLP will extract skills into your profile.</Text>
+            <Text style={styles.cardSub}>Paste your CV. Live Gemini is used when available; a demo-safe extractor keeps the workflow usable offline.</Text>
             <Text style={styles.label}>Paste Raw CV Text / Resume Content</Text>
             <TextInput value={cvInput} onChangeText={setCvInput} style={styles.textArea} multiline placeholderTextColor={theme.colors.slate400} />
-            <TouchableOpacity onPress={handleExtract} disabled={isExtracting} style={styles.extractBtn}><Sparkles color="#fff" size={14} /><Text style={styles.extractBtnText}>{isExtracting ? 'Extracting with Gemini NLP...' : 'Extract Profile Attributes'}</Text></TouchableOpacity>
+            <TouchableOpacity onPress={handleExtract} disabled={isExtracting} style={styles.extractBtn}><Sparkles color="#fff" size={14} /><Text style={styles.extractBtnText}>{isExtracting ? 'Extracting profile attributes...' : 'Extract Profile Attributes'}</Text></TouchableOpacity>
             {extracted && (
               <View style={styles.resultBox}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.slate200, paddingBottom: 8 }}><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><CheckCircle2 color={theme.colors.darkCyan} size={14} /><Text style={styles.resultTitle}>NLP Extracted Data</Text></View><TouchableOpacity onPress={applyExtracted} style={styles.applyBtn}><Text style={styles.applyText}>Apply to My Profile</Text></TouchableOpacity></View>
@@ -208,6 +271,7 @@ const styles = StyleSheet.create({
   summaryBox: { flex: 1.1, backgroundColor: theme.colors.slate50, borderWidth: 1, borderColor: theme.colors.slate200, borderRadius: 14, padding: 12 },
   summaryLabel: { fontWeight: '800', fontSize: 11, color: theme.colors.navy },
   summaryText: { fontSize: 11, color: theme.colors.slate700, lineHeight: 16, marginTop: 4 },
+  aiSourceText: { fontSize: 9, color: theme.colors.slate400, fontStyle: 'italic' },
   sectionLabel: { fontWeight: '800', fontSize: 10, color: theme.colors.slate400, textTransform: 'uppercase' },
   suggestion: { flexDirection: 'row', gap: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: theme.colors.slate200, padding: 10, borderRadius: 12, alignItems: 'flex-start' },
   suggestionText: { fontSize: 11, color: theme.colors.slate700, flex: 1, lineHeight: 16 },

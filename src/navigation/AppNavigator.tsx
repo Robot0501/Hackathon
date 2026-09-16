@@ -1,4 +1,5 @@
 import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -24,20 +25,49 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 function MainTabs() {
   const { currentUser } = useApp();
-  const isAdmin = currentUser?.role === 'admin';
+  const role = currentUser?.role;
+  const isAdmin = role === 'admin';
+  const isBusiness = role === 'business';
+
+  const screenOptions = {
+    headerStyle: { backgroundColor: theme.colors.navy },
+    headerTintColor: '#fff',
+    headerTitleStyle: { fontWeight: '800' as const },
+    tabBarActiveTintColor: theme.colors.navy,
+    tabBarInactiveTintColor: theme.colors.slate500,
+    tabBarStyle: { height: 62, paddingBottom: 6, paddingTop: 4, backgroundColor: '#fff', borderTopColor: theme.colors.slate200 },
+    tabBarLabelStyle: { fontSize: 9, fontWeight: '700' as const },
+  };
+
+  // Administrators use a dedicated governance workspace. They do not need
+  // student career tools such as job applications, skills, AI coaching, etc.
+  if (isAdmin) {
+    return (
+      <Tab.Navigator screenOptions={screenOptions}>
+        <Tab.Screen
+          name="Admin"
+          component={AdminScreen}
+          options={{
+            title: 'Admin',
+            headerTitle: 'Admin Console',
+            tabBarIcon: ({ color, size }) => <ShieldAlert color={color} size={size} />,
+          }}
+        />
+        <Tab.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{
+            title: 'Account',
+            headerTitle: 'Administrator Account',
+            tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
+          }}
+        />
+      </Tab.Navigator>
+    );
+  }
 
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.navy },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '800' },
-        tabBarActiveTintColor: theme.colors.navy,
-        tabBarInactiveTintColor: theme.colors.slate500,
-        tabBarStyle: { height: 62, paddingBottom: 6, paddingTop: 4, backgroundColor: '#fff', borderTopColor: theme.colors.slate200 },
-        tabBarLabelStyle: { fontSize: 9, fontWeight: '700' },
-      }}
-    >
+    <Tab.Navigator screenOptions={screenOptions}>
       <Tab.Screen
         name="Feed"
         component={FeedScreen}
@@ -51,8 +81,8 @@ function MainTabs() {
         name="Opportunities"
         component={OpportunitiesScreen}
         options={{
-          title: 'Jobs',
-          headerTitle: 'Career Hub',
+          title: isBusiness ? 'Recruit' : 'Jobs',
+          headerTitle: isBusiness ? 'Recruitment Hub' : 'Career Hub',
           tabBarIcon: ({ color, size }) => <Briefcase color={color} size={size} />,
         }}
       />
@@ -65,41 +95,36 @@ function MainTabs() {
           tabBarIcon: ({ color, size }) => <Users color={color} size={size} />,
         }}
       />
-      <Tab.Screen
-        name="AI"
-        component={AIAssistantScreen}
-        options={{
-          title: 'Enrich AI',
-          headerTitle: 'Enrich AI',
-          tabBarIcon: ({ color, size }) => <Sparkles color={color} size={size} />,
-        }}
-      />
+      {!isBusiness && (
+        <Tab.Screen
+          name="AI"
+          component={AIAssistantScreen}
+          options={{
+            title: 'Enrich AI',
+            headerTitle: 'Enrich AI',
+            tabBarIcon: ({ color, size }) => <Sparkles color={color} size={size} />,
+          }}
+        />
+      )}
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
         options={{
-          title: 'Dossier',
-          headerTitle: 'My Profile',
+          title: isBusiness ? 'Company' : 'Profile',
+          headerTitle: isBusiness ? 'Company Profile' : 'My Profile',
           tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
         }}
       />
-      {isAdmin && (
-        <Tab.Screen
-          name="Admin"
-          component={AdminScreen}
-          options={{
-            title: 'Admin',
-            headerTitle: 'Admin Console',
-            tabBarIcon: ({ color, size }) => <ShieldAlert color={color} size={size} />,
-          }}
-        />
-      )}
     </Tab.Navigator>
   );
 }
 
 export default function AppNavigator() {
-  const { currentUser } = useApp();
+  const { currentUser, isBootstrapping } = useApp();
+
+  if (isBootstrapping) {
+    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.slate50 }}><ActivityIndicator size="large" color={theme.colors.royal} /></View>;
+  }
 
   return (
     <NavigationContainer>

@@ -1,8 +1,10 @@
+import type { RegistrationPayload } from '../lib/authService';
+
 export type RootStackParamList = {
   Home: undefined;
   Login: undefined;
-  Register: { initialRole?: 'student' | 'alumni' | 'business' | 'admin' };
-  VerifyOTP: { email: string; name: string; role: string; code?: string };
+  Register: { initialRole?: 'student' | 'alumni' | 'business' } | undefined;
+  VerifyOTP: { email: string; mode: 'register' | 'login'; registration?: RegistrationPayload };
   Main: undefined;
 };
 

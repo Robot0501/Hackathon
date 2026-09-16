@@ -2,14 +2,12 @@ import React from 'react';
 import { ScrollView, View, Text, StyleSheet, Image, TouchableOpacity, Linking } from 'react-native';
 import { CheckCircle2, ShieldCheck, MapPin, GraduationCap, Award, Building2, Target, FileCheck, Users, Sparkles, ArrowRight, LogIn } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useApp } from '../context/AppContext';
 import { theme } from '../theme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 
 export default function HomeScreen() {
-  const { users, setCurrentUser } = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   return (
@@ -41,7 +39,7 @@ export default function HomeScreen() {
         <View style={styles.hero}>
           <View style={styles.pill}><View style={styles.dot} /><Text style={styles.pillText}>Richfield Official Career Platform</Text></View>
           <Text style={styles.heroTitle}>Bridging Richfield Talent with South Africa’s Leading Enterprises.</Text>
-          <Text style={styles.heroSub}>Verified dossiers, AI career guidance, direct hiring pipelines, and alumni mentorship for 8 national campuses.</Text>
+          <Text style={styles.heroSub}>Verified profiles, AI career guidance, direct hiring pipelines, and alumni mentorship for 8 national campuses.</Text>
           <View style={styles.heroBtns}>
             <TouchableOpacity style={[styles.btnLarge, { backgroundColor: theme.colors.royal }]} onPress={() => navigation.navigate('Register', { initialRole: 'student' })}>
               <Text style={styles.btnLargeText}>Get Started as Student</Text><ArrowRight color="#fff" size={16} />
@@ -61,7 +59,7 @@ export default function HomeScreen() {
               <View style={styles.heroCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={styles.iconBox}><GraduationCap color={theme.colors.royal} size={16} /></View>
-                  <View><Text style={styles.cardTitle}>Verified Career Dossier</Text><Text style={styles.cardSub}>BSc IT & Diploma in IT</Text></View>
+                  <View><Text style={styles.cardTitle}>Verified Career Profile</Text><Text style={styles.cardSub}>BSc IT & Diploma in IT</Text></View>
                 </View>
                 <View style={styles.verifiedPill}><CheckCircle2 color={theme.colors.darkCyan} size={12} /><Text style={styles.verifiedText}>Verified</Text></View>
               </View>
@@ -77,7 +75,7 @@ export default function HomeScreen() {
             { v: '8', l: 'National Campuses', s: 'Johannesburg, Durban...' },
             { v: '92%', l: 'Placement Index', s: 'Graduate readiness' },
             { v: '250+', l: 'Vetted Employers', s: 'Direct hiring partners' },
-            { v: '100%', l: 'Verified Dossiers', s: 'Accredited records' },
+            { v: '100%', l: 'Verified Profiles', s: 'Accredited records' },
           ].map((m) => (
             <View key={m.l} style={styles.metricCard}>
               <Text style={styles.metricBig}>{m.v}</Text><Text style={styles.metricLabelSmall}>{m.l}</Text><Text style={styles.metricSub}>{m.s}</Text>
@@ -131,7 +129,7 @@ export default function HomeScreen() {
           <View style={{ gap: 12, marginTop: 12 }}>
             {[
               { n: 1, t: 'Create & Verify Account', d: 'Institutional or corporate credentials validated.' },
-              { n: 2, t: 'Build Your Career Dossier', d: 'Skills, repos, achievements, 60s video pitch.' },
+              { n: 2, t: 'Build Your Career Profile', d: 'Skills, repos, achievements, 60s video pitch.' },
               { n: 3, t: 'Get AI Guidance & Mentorship', d: 'Instant CV feedback + alumni sessions.' },
               { n: 4, t: 'Apply & Get Placed', d: 'Submit verified profile to hiring managers.' },
             ].map((s) => (
@@ -141,24 +139,6 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
-        </View>
-
-        {/* Quick demo login */}
-        <View style={styles.demoSection}>
-          <Text style={styles.sectionTitle}>Try a Demo Persona</Text>
-          <Text style={styles.sectionSub}>Tap to instantly explore as a verified user.</Text>
-          <View style={{ gap: 8, marginTop: 12 }}>
-            {users.slice(0, 4).map((u) => (
-              <TouchableOpacity key={u.id} style={styles.demoCard} onPress={() => setCurrentUser(u)}>
-                <Image source={{ uri: u.avatar }} style={styles.demoAvatar} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.demoName}>{u.name}</Text><Text style={styles.demoRole}>{u.role} • {u.headline.slice(0, 48)}</Text>
-                </View>
-                <View style={styles.demoGo}><ArrowRight color={theme.colors.royal} size={16} /></View>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.linkBtn} onPress={() => navigation.navigate('Login')}><Text style={styles.linkBtnText}>Or sign in with email →</Text></TouchableOpacity>
         </View>
 
         {/* Footer */}
@@ -236,14 +216,6 @@ const styles = StyleSheet.create({
   stepNumText: { color: '#fff', fontWeight: '900', fontSize: 13 },
   stepTitle: { fontSize: 12, fontWeight: '800', color: theme.colors.navy },
   stepDesc: { fontSize: 10, color: theme.colors.slate500, marginTop: 2 },
-  demoSection: { padding: 16, backgroundColor: '#fff', gap: 8, borderTopWidth: 1, borderColor: theme.colors.slate200 },
-  demoCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.slate50, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.slate200 },
-  demoAvatar: { width: 40, height: 40, borderRadius: 10 },
-  demoName: { fontWeight: '800', fontSize: 12, color: theme.colors.navy },
-  demoRole: { fontSize: 10, color: theme.colors.slate500, textTransform: 'capitalize' },
-  demoGo: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#BFDBFE' },
-  linkBtn: { alignItems: 'center', paddingVertical: 10 },
-  linkBtnText: { color: theme.colors.royal, fontWeight: '700', fontSize: 11 },
   footer: { padding: 16, backgroundColor: theme.colors.navyDark, alignItems: 'center', gap: 6 },
   footerText: { color: '#94A3B8', fontSize: 10, textAlign: 'center' },
   footerSub: { color: '#64748B', fontSize: 9, textAlign: 'center' },

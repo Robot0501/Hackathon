@@ -1,20 +1,30 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, TextInput, Modal, Alert } from 'react-native';
-import { Heart, MessageCircle, Share2, Play, PlusCircle, Video, Send, GraduationCap, Building2, Briefcase, Sparkles } from 'lucide-react-native';
+import { Heart, MessageCircle, Share2, Play, PlusCircle, Video, Send, GraduationCap, Building2, Briefcase, Sparkles, ImagePlus } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
 import { theme, shadow } from '../theme';
 import { Post } from '../types';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadUserImage } from '../lib/dataService';
+import UserAvatar from '../components/UserAvatar';
 
 export default function FeedScreen() {
-  const { currentUser, posts, handleAddPost, handleLikePost, handleAddComment } = useApp();
+  const { currentUser, posts, handleAddPost, handleLikePost, handleAddComment, isFirstVisit, markWelcomeSeen } = useApp();
   const [activeFilter, setActiveFilter] = useState<'all' | 'students'>('all');
   const [isCreating, setIsCreating] = useState(false);
   const [postContent, setPostContent] = useState('');
   const [postType, setPostType] = useState<'text' | 'showcase' | 'video' | 'career_journey'>('text');
   const [videoUrl, setVideoUrl] = useState('');
+  const [projectImageUrl, setProjectImageUrl] = useState('');
+  const [projectLink, setProjectLink] = useState('');
+  const [isUploadingProject, setIsUploadingProject] = useState(false);
   const [activeVideo, setActiveVideo] = useState<Post | null>(null);
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (currentUser && isFirstVisit) markWelcomeSeen();
+  }, [currentUser, isFirstVisit, markWelcomeSeen]);
 
   if (!currentUser) return <View style={styles.center}><Text>Not authenticated</Text></View>;
 
@@ -25,13 +35,33 @@ export default function FeedScreen() {
     const newPost: Post = {
       id: `post-${Date.now()}`, authorId: currentUser.id, authorName: currentUser.name, authorRole: currentUser.role, authorAvatar: currentUser.avatar,
       authorHeadline: currentUser.headline || `${currentUser.role} @Richfield`, campus: currentUser.campus || 'Richfield College',
-      timestamp: 'Just now', content: postContent, type: postType,
+      timestamp: 'Just now', content: projectLink.trim() && postType === 'showcase' ? `${postContent}\n\nProject link: ${projectLink.trim()}` : postContent, type: postType,
       videoUrl: postType === 'video' ? (videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4') : undefined,
       videoThumbnail: postType === 'video' ? 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&h=450&fit=crop' : undefined,
-      videoDuration: postType === 'video' ? '0:45' : undefined, tags: ['Enrich', postType === 'video' ? 'VideoPitch' : 'CampusUpdate'], likes: 1, hasLiked: true, targetAudience: 'all', comments: []
+      videoDuration: postType === 'video' ? '0:45' : undefined, mediaUrl: postType === 'showcase' ? projectImageUrl || undefined : undefined, tags: ['Enrich', postType === 'video' ? 'VideoPitch' : 'CampusUpdate'], likes: 1, hasLiked: true, targetAudience: 'all', comments: []
     };
     handleAddPost(newPost);
-    setPostContent(''); setVideoUrl(''); setIsCreating(false);
+    setPostContent(''); setVideoUrl(''); setProjectImageUrl(''); setProjectLink(''); setIsCreating(false);
+  };
+
+  const pickProjectImage = async () => {
+    if (isUploadingProject) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach a project screenshot.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'] as any, quality: 0.85 });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    setIsUploadingProject(true);
+    try {
+      const url = await uploadUserImage(currentUser.id, result.assets[0].uri, 'project');
+      setProjectImageUrl(url);
+    } catch (error: any) {
+      Alert.alert('Upload failed', error?.message || 'Could not upload the project image.');
+    } finally {
+      setIsUploadingProject(false);
+    }
   };
 
   const getRoleIcon = (role: string) => {
@@ -49,7 +79,7 @@ export default function FeedScreen() {
         <View style={styles.banner}>
           <View>
             <Text style={styles.bannerEyebrow}>Personalized Feed</Text>
-            <Text style={styles.bannerTitle}>Welcome back, {currentUser.name}!</Text>
+            <Text style={styles.bannerTitle}>{isFirstVisit ? 'Welcome' : 'Welcome back'}, {currentUser.name}!</Text>
             <Text style={styles.bannerSub}>{currentUser.role === 'student' ? 'Peer projects & graduate openings' : currentUser.role === 'alumni' ? 'Alumni networks & mentorship' : 'Verified talent spotlights'}</Text>
           </View>
           <TouchableOpacity style={styles.bannerBtn} onPress={() => setIsCreating(true)}><PlusCircle color="#fff" size={14} /><Text style={styles.bannerBtnText}>New Post</Text></TouchableOpacity>
@@ -84,6 +114,15 @@ export default function FeedScreen() {
               </View>
             </ScrollView>
             <TextInput value={postContent} onChangeText={setPostContent} placeholder={postType === 'video' ? 'Introduce your video pitch...' : 'What are you working on at Richfield?'} style={styles.textArea} placeholderTextColor={theme.colors.slate400} multiline />
+            {postType === 'showcase' && (
+              <View style={styles.videoInputBox}>
+                <Text style={styles.label}>Project Evidence</Text>
+                <TouchableOpacity onPress={() => void pickProjectImage()} style={styles.attachBtn}><ImagePlus color={theme.colors.darkCyan} size={14} /><Text style={styles.attachBtnText}>{isUploadingProject ? 'Uploading image...' : projectImageUrl ? 'Image attached ✓' : 'Attach Project Image / Screenshot'}</Text></TouchableOpacity>
+                {projectImageUrl ? <Image source={{ uri: projectImageUrl }} style={styles.projectPreview} /> : null}
+                <TextInput value={projectLink} onChangeText={setProjectLink} placeholder="Optional GitHub, Drive or live project URL" style={styles.input} placeholderTextColor={theme.colors.slate400} autoCapitalize="none" />
+                <Text style={styles.hint}>Attach a real screenshot and/or link so recruiters can see evidence of the project.</Text>
+              </View>
+            )}
             {postType === 'video' && (
               <View style={styles.videoInputBox}>
                 <Text style={styles.label}>Video URL</Text>
@@ -98,7 +137,7 @@ export default function FeedScreen() {
           </View>
         ) : (
           <TouchableOpacity style={styles.fakeComposer} onPress={() => setIsCreating(true)}>
-            <Image source={{ uri: currentUser.avatar }} style={styles.avatarSmall} />
+            <UserAvatar uri={currentUser.avatar} name={currentUser.name} size={32} />
             <Text style={styles.fakeText}>Share a project update, pitch video, or achievement...</Text>
             <View style={styles.videoIcon}><Video color={theme.colors.darkCyan} size={16} /></View>
           </TouchableOpacity>
@@ -109,9 +148,9 @@ export default function FeedScreen() {
           return (
             <View key={post.id} style={styles.postCard}>
               <View style={styles.postHeader}>
-                <Image source={{ uri: post.authorAvatar }} style={styles.avatar} />
+                <UserAvatar uri={post.authorAvatar} name={post.authorName} size={40} />
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Text style={styles.authorName}>{post.authorName}</Text><View style={styles.roleDot}>{getRoleIcon(post.authorRole)}</View></View>
+                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><Text style={styles.authorName}>{post.authorName}</Text><View style={styles.roleDot}>{getRoleIcon(post.authorRole)}</View>{post.isShowcase && <View style={styles.samplePill}><Text style={styles.samplePillText}>Presentation sample</Text></View>}</View>
                   <Text style={styles.headline} numberOfLines={1}>{post.authorHeadline}</Text>
                   <Text style={styles.meta}>{post.campus} • {post.timestamp}</Text>
                 </View>
@@ -119,6 +158,7 @@ export default function FeedScreen() {
               </View>
               <Text style={styles.postContent}>{post.content}</Text>
               {post.tags?.length ? <View style={styles.tagsRow}>{post.tags.map((t) => <Text key={t} style={styles.tag}>#{t}</Text>)}</View> : null}
+              {post.mediaUrl ? <Image source={{ uri: post.mediaUrl }} style={styles.projectMedia} resizeMode="cover" /> : null}
               {post.type === 'video' && post.videoThumbnail && (
                 <TouchableOpacity style={styles.videoCard} onPress={() => setActiveVideo(post)}>
                   <Image source={{ uri: post.videoThumbnail }} style={styles.videoThumb} />
@@ -127,15 +167,15 @@ export default function FeedScreen() {
                 </TouchableOpacity>
               )}
               <View style={styles.actions}>
-                <TouchableOpacity style={styles.actionBtn} onPress={() => handleLikePost(post.id)}><Heart color={post.hasLiked ? '#BE123C' : theme.colors.slate500} size={16} fill={post.hasLiked ? '#BE123C' : 'none'} /><Text style={[styles.actionText, post.hasLiked && { color: '#BE123C' }]}>{post.likes}</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn} onPress={() => setExpanded((p) => ({ ...p, [post.id]: !p[post.id] }))}><MessageCircle color={theme.colors.slate500} size={16} /><Text style={styles.actionText}>{post.comments.length}</Text></TouchableOpacity>
+                <TouchableOpacity disabled={post.isShowcase} style={[styles.actionBtn, post.isShowcase && { opacity: 0.55 }]} onPress={() => !post.isShowcase && handleLikePost(post.id)}><Heart color={post.hasLiked ? '#BE123C' : theme.colors.slate500} size={16} fill={post.hasLiked ? '#BE123C' : 'none'} /><Text style={[styles.actionText, post.hasLiked && { color: '#BE123C' }]}>{post.likes}</Text></TouchableOpacity>
+                <TouchableOpacity disabled={post.isShowcase} style={[styles.actionBtn, post.isShowcase && { opacity: 0.55 }]} onPress={() => !post.isShowcase && setExpanded((p) => ({ ...p, [post.id]: !p[post.id] }))}><MessageCircle color={theme.colors.slate500} size={16} /><Text style={styles.actionText}>{post.comments.length}</Text></TouchableOpacity>
                 <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Share2 color={theme.colors.slate400} size={12} /><Text style={styles.shareText}>Richfield Network</Text></View>
               </View>
               {isOpen && (
                 <View style={styles.commentsBox}>
                   {post.comments.map((c) => (
                     <View key={c.id} style={styles.comment}>
-                      <Image source={{ uri: c.authorAvatar }} style={styles.commentAvatar} />
+                      <UserAvatar uri={c.authorAvatar} name={c.authorName} size={28} />
                       <View style={{ flex: 1 }}><View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={styles.commentAuthor}>{c.authorName}</Text><Text style={styles.commentTime}>{c.timestamp}</Text></View><Text style={styles.commentContent}>{c.content}</Text></View>
                     </View>
                   ))}
@@ -209,6 +249,9 @@ const styles = StyleSheet.create({
   label: { fontWeight: '700', fontSize: 11, color: theme.colors.slate700 },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: theme.colors.slate200, borderRadius: 8, paddingHorizontal: 10, height: 36, fontSize: 11, color: theme.colors.navy },
   hint: { fontSize: 10, color: theme.colors.slate500 },
+  attachBtn: { flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: '#ECFEFF', borderWidth: 1, borderColor: '#A5F3FC', paddingHorizontal: 10, paddingVertical: 9, borderRadius: 10 },
+  attachBtnText: { fontSize: 10, fontWeight: '800', color: theme.colors.navy },
+  projectPreview: { width: '100%', height: 150, borderRadius: 10, backgroundColor: theme.colors.slate100 },
   composerActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
   btnGhost: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.slate200 },
   btnGhostText: { fontWeight: '700', fontSize: 11, color: theme.colors.slate600 },
@@ -223,12 +266,15 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20 },
   authorName: { fontWeight: '800', fontSize: 12, color: theme.colors.navy },
   roleDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.slate100, alignItems: 'center', justifyContent: 'center' },
+  samplePill: { backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  samplePillText: { color: '#9A3412', fontSize: 8, fontWeight: '800' },
   headline: { fontSize: 10, color: theme.colors.slate500 },
   meta: { fontSize: 9, color: theme.colors.slate400, marginTop: 2 },
   videoBadge: { flexDirection: 'row', gap: 4, backgroundColor: '#FDF2F8', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 999, alignItems: 'center', borderWidth: 1, borderColor: '#FBCFE8' },
   videoBadgeText: { fontSize: 9, fontWeight: '800', color: theme.colors.navy },
   postContent: { fontSize: 12, color: theme.colors.slate700, lineHeight: 18, paddingHorizontal: 12 },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12, marginTop: 8 },
+  projectMedia: { width: 'auto', height: 200, marginHorizontal: 12, marginTop: 10, borderRadius: 12, backgroundColor: theme.colors.slate100 },
   tag: { color: theme.colors.darkCyan, fontSize: 10, fontWeight: '700' },
   videoCard: { margin: 12, height: 180, borderRadius: 12, overflow: 'hidden', backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
   videoThumb: { ...StyleSheet.absoluteFill, width: undefined, height: undefined } as any,

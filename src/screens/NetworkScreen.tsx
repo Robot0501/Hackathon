@@ -1,28 +1,27 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, TextInput, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, FlatList } from 'react-native';
 import { Search, GraduationCap, Briefcase, Building2, MessageSquare, UserPlus, CheckCircle2, Trophy, Send, MapPin } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../theme';
+import UserAvatar from '../components/UserAvatar';
 
 export default function NetworkScreen() {
-  const { currentUser, users, connections, handleSendConnectionRequest, chatMessages, handleSendMessage } = useApp();
+  const { currentUser, users, connections, handleSendConnectionRequest, handleAcceptConnectionRequest, handleDeclineConnectionRequest, chatMessages, handleSendMessage, questions, handleAskQuestion, handleAnswerQuestion } = useApp();
   const [activeTab, setActiveTab] = useState<'discover' | 'messages' | 'questions' | 'leaderboard'>('discover');
   const [searchQuery, setSearchQuery] = useState('');
   const isBusiness = currentUser?.role === 'business';
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'alumni' | 'business'>(isBusiness ? 'student' : 'all');
-  const [selectedChatUser, setSelectedChatUser] = useState<any>(users.find((u) => u.id !== currentUser?.id) || null);
+  const [selectedChatUser, setSelectedChatUser] = useState<any>(users.find((u) => u.id !== currentUser?.id && !u.isShowcase) || null);
   const [messageInput, setMessageInput] = useState('');
   const [questionTitle, setQuestionTitle] = useState('');
   const [questionBody, setQuestionBody] = useState('');
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
-  const [questionThreads, setQuestionThreads] = useState([
-    { id: 'q-1', authorName: 'Lerato Mokoena', authorRole: 'alumni', title: 'How should I prepare for my first software engineering interview?', body: 'I have a strong portfolio but I am nervous about the technical interview process. What kinds of questions should I expect?', answers: [{ id: 'a-1', authorName: 'Aphiwe Ndlovu', content: 'Practice problem-solving out loud and explain your thinking.', timestamp: '2h ago' }] },
-    { id: 'q-2', authorName: 'Nandi Khumalo', authorRole: 'student', title: 'Where is the best place to look for internship opportunities?', body: 'I am in my final year and want to start applying early. Are there channels students should use?', answers: [{ id: 'a-3', authorName: 'Tinashe Dlamini', content: 'Use campus placement channels and alumni referrals.', timestamp: '5h ago' }] },
-  ]);
+
 
   if (!currentUser) return null;
 
-  const otherUsers = users.filter((u) => u.id !== currentUser.id);
+  const otherUsers = users.filter((u) => u.id !== currentUser.id && u.role !== 'admin');
+  const messageableUsers = otherUsers.filter((u) => !u.isShowcase && (!isBusiness || u.role === 'student'));
   const filteredUsers = otherUsers.filter((u) => {
     if (isBusiness && u.role !== 'student') return false;
     if (roleFilter !== 'all' && u.role !== roleFilter) return false;
@@ -35,18 +34,18 @@ export default function NetworkScreen() {
 
   const conversation = chatMessages.filter((m) => (m.senderId === currentUser.id && m.receiverId === selectedChatUser?.id) || (m.senderId === selectedChatUser?.id && m.receiverId === currentUser.id));
 
-  const leaderboard = [...users].map((u) => ({ name: u.name, role: u.role, score: 18 + u.technicalSkills.length * 2 + u.endorsements.reduce((s, e) => s + e.count, 0) })).sort((a, b) => b.score - a.score).slice(0, 10);
+  const leaderboard = users.filter((u) => !u.isShowcase).map((u) => ({ name: u.name, role: u.role, score: 18 + u.technicalSkills.length * 2 + u.endorsements.reduce((s, e) => s + e.count, 0) })).sort((a, b) => b.score - a.score).slice(0, 10);
 
   const handleAsk = () => {
     if (!questionTitle.trim() || !questionBody.trim()) return;
-    setQuestionThreads((prev) => [{ id: `q-${Date.now()}`, authorName: currentUser.name, authorRole: currentUser.role, title: questionTitle.trim(), body: questionBody.trim(), answers: [] }, ...prev]);
+    handleAskQuestion(questionTitle.trim(), questionBody.trim());
     setQuestionTitle(''); setQuestionBody('');
   };
 
   const handleAnswer = (qid: string) => {
     const draft = (answerDrafts[qid] || '').trim();
     if (!draft) return;
-    setQuestionThreads((prev) => prev.map((t) => t.id === qid ? { ...t, answers: [...t.answers, { id: `a-${Date.now()}`, authorName: currentUser.name, content: draft, timestamp: 'Just now' }] } : t));
+    handleAnswerQuestion(qid, draft);
     setAnswerDrafts((p) => ({ ...p, [qid]: '' }));
   };
 
@@ -90,13 +89,30 @@ export default function NetworkScreen() {
               return (
                 <View key={user.id} style={styles.userCard}>
                   <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                    <UserAvatar uri={user.avatar} name={user.name} size={48} radius={14} />
                     <View style={{ flex: 1 }}><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Text style={styles.userName}>{user.name}</Text>{user.verificationStatus === 'verified' && <CheckCircle2 color={theme.colors.darkCyan} size={12} />}</View><Text style={styles.userHeadline} numberOfLines={1}>{user.headline}</Text><View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><MapPin color={theme.colors.darkCyan} size={10} /><Text style={styles.userMeta} numberOfLines={1}>{user.campus}</Text></View></View>
                   </View>
                   <View style={styles.skillRow}>{user.technicalSkills.slice(0, 3).map((s) => <View key={s} style={styles.skillTag}><Text style={styles.skillText}>{s}</Text></View>)}</View>
                   <View style={styles.cardActions}>
-                    <TouchableOpacity style={styles.btnGhost} onPress={() => { setSelectedChatUser(user); setActiveTab('messages'); }}><MessageSquare color={theme.colors.darkCyan} size={12} /><Text style={styles.btnGhostText}>Message</Text></TouchableOpacity>
-                    {status === 'accepted' ? <View style={styles.connected}><CheckCircle2 color={theme.colors.darkCyan} size={12} /><Text style={styles.connectedText}>Connected</Text></View> : status === 'pending' ? <View style={styles.pending}><Text style={styles.pendingText}>Request Pending</Text></View> : <TouchableOpacity style={styles.btnPrimary} onPress={() => handleSendConnectionRequest(user.id)}><UserPlus color="#fff" size={12} /><Text style={styles.btnPrimaryText}>Connect</Text></TouchableOpacity>}
+                    {user.isShowcase ? (
+                      <View style={styles.showcaseNotice}><Text style={styles.showcaseNoticeText}>Presentation directory profile</Text></View>
+                    ) : (
+                      <>
+                        <TouchableOpacity style={styles.btnGhost} onPress={() => { setSelectedChatUser(user); setActiveTab('messages'); }}><MessageSquare color={theme.colors.darkCyan} size={12} /><Text style={styles.btnGhostText}>Message</Text></TouchableOpacity>
+                        {status === 'accepted' ? (
+                          <View style={styles.connected}><CheckCircle2 color={theme.colors.darkCyan} size={12} /><Text style={styles.connectedText}>Connected</Text></View>
+                        ) : status === 'pending_outgoing' ? (
+                          <View style={styles.pending}><Text style={styles.pendingText}>Request Pending</Text></View>
+                        ) : status === 'pending_incoming' ? (
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <TouchableOpacity style={styles.btnGhost} onPress={() => handleDeclineConnectionRequest(user.id)}><Text style={styles.btnGhostText}>Decline</Text></TouchableOpacity>
+                            <TouchableOpacity style={styles.btnPrimary} onPress={() => handleAcceptConnectionRequest(user.id)}><CheckCircle2 color="#fff" size={12} /><Text style={styles.btnPrimaryText}>Accept</Text></TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity style={styles.btnPrimary} onPress={() => handleSendConnectionRequest(user.id)}><UserPlus color="#fff" size={12} /><Text style={styles.btnPrimaryText}>Connect</Text></TouchableOpacity>
+                        )}
+                      </>
+                    )}
                   </View>
                 </View>
               );
@@ -110,18 +126,18 @@ export default function NetworkScreen() {
               <Text style={styles.sectionTitle}>Conversations</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {otherUsers.map((u) => {
+                  {messageableUsers.map((u) => {
                     const selected = selectedChatUser?.id === u.id;
                     return (
                       <TouchableOpacity key={u.id} onPress={() => setSelectedChatUser(u)} style={[styles.chatUserPill, selected && styles.chatUserActive]}>
-                        <Image source={{ uri: u.avatar }} style={styles.chatAvatar} /><Text style={[styles.chatUserName, selected && { color: theme.colors.navy }]} numberOfLines={1}>{u.name.split(' ')[0]}</Text>
+                        <UserAvatar uri={u.avatar} name={u.name} size={34} /><Text style={[styles.chatUserName, selected && { color: theme.colors.navy }]} numberOfLines={1}>{u.name.split(' ')[0]}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
               </ScrollView>
               {selectedChatUser && (
-                <View style={styles.chatHeader}><Image source={{ uri: selectedChatUser.avatar }} style={styles.chatAvatarLarge} /><View><Text style={styles.chatName}>{selectedChatUser.name}</Text><Text style={styles.chatMeta}>{selectedChatUser.role} • {selectedChatUser.campus}</Text></View></View>
+                <View style={styles.chatHeader}><UserAvatar uri={selectedChatUser.avatar} name={selectedChatUser.name} size={44} /><View><Text style={styles.chatName}>{selectedChatUser.name}</Text><Text style={styles.chatMeta}>{selectedChatUser.role} • {selectedChatUser.campus}</Text></View></View>
               )}
             </View>
             <View style={styles.chatBox}>
@@ -137,13 +153,13 @@ export default function NetworkScreen() {
         {activeTab === 'questions' && (
           <>
             <View style={styles.qComposer}><Text style={styles.sectionTitle}>Ask the Richfield Community</Text><TextInput value={questionTitle} onChangeText={setQuestionTitle} placeholder="Ask a question about careers, projects, or campus life..." style={styles.input} placeholderTextColor={theme.colors.slate400} /><TextInput value={questionBody} onChangeText={setQuestionBody} placeholder="Add context so others can help you more effectively." style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]} multiline placeholderTextColor={theme.colors.slate400} /><TouchableOpacity style={styles.btnPrimary} onPress={handleAsk}><Text style={styles.btnPrimaryText}>Post Question</Text></TouchableOpacity></View>
-            {questionThreads.map((thread) => (
+            {questions.map((thread) => (
               <View key={thread.id} style={styles.threadCard}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><View><Text style={styles.threadRole}>{thread.authorRole}</Text><Text style={styles.threadTitle}>{thread.title}</Text></View><View style={styles.replyBadge}><Text style={styles.replyBadgeText}>{thread.answers.length} repl{thread.answers.length === 1 ? 'y' : 'ies'}</Text></View></View>
                 <Text style={styles.threadBody}>{thread.body}</Text><Text style={styles.threadMeta}>Asked by {thread.authorName}</Text>
                 {thread.answers.map((a: any) => <View key={a.id} style={styles.answer}><Text style={styles.answerAuthor}>{a.authorName}</Text><Text style={styles.answerText}>{a.content}</Text><Text style={styles.answerTime}>{a.timestamp}</Text></View>)}
                 {thread.answers.length === 0 && <View style={styles.noAnswer}><Text style={styles.noAnswerText}>No answers yet. Be the first to help.</Text></View>}
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}><TextInput value={answerDrafts[thread.id] || ''} onChangeText={(v) => setAnswerDrafts((p) => ({ ...p, [thread.id]: v }))} placeholder="Share your answer..." style={[styles.input, { flex: 1 }]} placeholderTextColor={theme.colors.slate400} /><TouchableOpacity style={styles.btnSmall} onPress={() => handleAnswer(thread.id)}><Text style={styles.btnSmallText}>Reply</Text></TouchableOpacity></View>
+                {thread.isShowcase ? <View style={styles.showcaseQuestion}><Text style={styles.showcaseQuestionText}>Presentation discussion — create a real question above to test replies and persistence.</Text></View> : <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}><TextInput value={answerDrafts[thread.id] || ''} onChangeText={(v) => setAnswerDrafts((p) => ({ ...p, [thread.id]: v }))} placeholder="Share your answer..." style={[styles.input, { flex: 1 }]} placeholderTextColor={theme.colors.slate400} /><TouchableOpacity style={styles.btnSmall} onPress={() => handleAnswer(thread.id)}><Text style={styles.btnSmallText}>Reply</Text></TouchableOpacity></View>}
               </View>
             ))}
           </>
@@ -201,6 +217,8 @@ const styles = StyleSheet.create({
   connectedText: { color: theme.colors.darkCyan, fontWeight: '800', fontSize: 11 },
   pending: { backgroundColor: '#FEF3C7', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   pendingText: { color: '#92400E', fontWeight: '800', fontSize: 11 },
+  showcaseNotice: { flex: 1, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+  showcaseNoticeText: { color: '#9A3412', fontWeight: '800', fontSize: 10, textAlign: 'center' },
   chatPicker: { backgroundColor: '#fff', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: theme.colors.slate200, gap: 10 },
   sectionTitle: { fontWeight: '800', fontSize: 12, color: theme.colors.navy },
   chatUserPill: { alignItems: 'center', gap: 4, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.slate200, backgroundColor: theme.colors.slate50, width: 70 },
@@ -241,6 +259,8 @@ const styles = StyleSheet.create({
   noAnswerText: { fontSize: 10, color: theme.colors.slate500 },
   btnSmall: { backgroundColor: theme.colors.darkCyan, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, justifyContent: 'center' },
   btnSmallText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  showcaseQuestion: { backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', padding: 10, borderRadius: 10, marginTop: 8 },
+  showcaseQuestionText: { color: '#9A3412', fontSize: 10, lineHeight: 14 },
   leaderCard: { backgroundColor: '#fff', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.slate200, gap: 10 },
   sectionSub: { fontSize: 10, color: theme.colors.slate500 },
   leaderRow: { flexDirection: 'row', gap: 12, backgroundColor: theme.colors.slate50, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.slate200, alignItems: 'center' },

@@ -2,35 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const SMTP_HOST = process.env.SMTP_HOST || '';
-const SMTP_PORT = Number(process.env.SMTP_PORT || '587');
-const SMTP_USER = process.env.SMTP_USER || '';
-const SMTP_PASS = process.env.SMTP_PASS || '';
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || 'noreply@richfield.ac.za';
-const otpStore = new Map<string, { code: string; expiresAt: number; name: string; role: string; email: string }>();
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json({ limit: '10mb' }));
-
-function createOtpCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-function createMailerTransport() {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
-  return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-}
 
 let aiClient: GoogleGenAI | null = null;
 function getAIClient() {
@@ -47,49 +26,23 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), mode: 'mobile-api' });
 });
 
-app.post('/api/send-otp', async (req, res) => {
-  try {
-    const { email, name, role } = req.body || {};
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) return res.status(400).json({ success: false, message: 'Email is required.' });
-    const code = createOtpCode();
-    const expiresAt = Date.now() + 5 * 60 * 1000;
-    otpStore.set(normalizedEmail, { code, expiresAt, name: String(name || 'Student'), role: String(role || 'student'), email: normalizedEmail });
-    const transporter = createMailerTransport();
-    if (!transporter) {
-      console.log(`Demo OTP for ${normalizedEmail} (${role || 'user'}): ${code}`);
-      return res.json({ success: false, mode: 'demo', code, message: 'SMTP not configured. Demo mode active.' });
-    }
-    await transporter.sendMail({
-      from: SMTP_FROM,
-      to: normalizedEmail,
-      subject: 'Your Richfield Enrich verification code',
-      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;"><h2 style="color: #1e3a8a;">Richfield Enrich Verification</h2><p>Hello ${name || 'there'},</p><p>Your verification code for the ${role || 'Enrich'} registration is:</p><div style="padding:16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:28px;font-weight:bold;letter-spacing:6px;text-align:center;color:#1e3a8a;margin:16px 0;">${code}</div><p>This code is valid for 5 minutes.</p></div>`,
-    });
-    return res.json({ success: true, mode: 'email', code: null });
-  } catch (error) {
-    console.error('OTP email send failed:', error);
-    return res.status(500).json({ success: false, message: 'Failed to send verification email.' });
-  }
-});
+// Authentication and email verification are handled directly by Supabase Auth.
 
-app.post('/api/verify-otp', (req, res) => {
-  try {
-    const { email, code } = req.body || {};
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const normalizedCode = String(code || '').trim();
-    if (!normalizedEmail || !normalizedCode) return res.status(400).json({ success: false, message: 'Email and code are required.' });
-    const pending = otpStore.get(normalizedEmail);
-    if (!pending) return res.status(400).json({ success: false, message: 'No active verification code found for this email.' });
-    if (Date.now() > pending.expiresAt) { otpStore.delete(normalizedEmail); return res.status(410).json({ success: false, message: 'Verification code has expired. Request a new one.' }); }
-    if (pending.code !== normalizedCode) return res.status(400).json({ success: false, message: 'Incorrect verification code.' });
-    otpStore.delete(normalizedEmail);
-    return res.json({ success: true, message: 'Verification succeeded.', user: { email: pending.email, name: pending.name, role: pending.role } });
-  } catch (error) {
-    console.error('OTP verification failed:', error);
-    return res.status(500).json({ success: false, message: 'Verification failed.' });
-  }
-});
+const CAREER_SCOPE_REPLY = `I’m Enrich AI, focused on Richfield career and employability support. I can help with CVs, interviews, internships, learnerships, job applications, skills, projects, portfolios, networking, alumni mentorship, LinkedIn, and using Enrich career features. I can’t help with unrelated topics.`;
+
+function isCareerRelevantQuery(text: string) {
+  const q = String(text || '').trim().toLowerCase();
+  if (!q) return false;
+  const allowedTerms = [
+    'cv', 'resume', 'interview', 'job', 'career', 'intern', 'internship', 'learnership',
+    'opportun', 'apply', 'application', 'skill', 'project', 'portfolio', 'github', 'linkedin',
+    'network', 'mentor', 'alumni', 'cover letter', 'motivation', 'graduate', 'employ', 'work',
+    'salary', 'recruit', 'company', 'profile', 'richfield', 'enrich', 'course', 'qualification',
+    'study', 'student', 'certification', 'badge', 'experience', 'leadership', 'hackathon',
+    'hello', 'hi', 'hey', 'help', 'thank', 'thanks'
+  ];
+  return allowedTerms.some((term) => q.includes(term));
+}
 
 app.post('/api/gemini/profile-assistant', async (req, res) => {
   try {
@@ -129,6 +82,10 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
 app.post('/api/gemini/chat', async (req, res) => {
   try {
     const { messages, userContext } = req.body;
+    const lastUserMessage = messages?.[messages.length - 1]?.content || '';
+    if (!isCareerRelevantQuery(lastUserMessage)) {
+      return res.json({ reply: CAREER_SCOPE_REPLY });
+    }
     const ai = getAIClient();
     if (!ai) {
       const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
@@ -141,14 +98,63 @@ app.post('/api/gemini/chat', async (req, res) => {
     const systemPrompt = `You are Enrich AI, the official intelligent career mentor for Richfield College in South Africa.
 Current user role: ${userContext?.role || 'Student'} (${userContext?.name || 'Richfield Scholar'}).
 Campus/Programme: ${userContext?.programme || 'BSc Information Technology'} at ${userContext?.campus || 'Braamfontein Campus'}.
-Guidelines: Provide relevant, encouraging, pragmatic advice tailored to the South African job market, graduate programmes, internships, learnerships, and POPIA guidelines. Be concise, friendly, professional.`;
+Guidelines: Only answer questions about careers, employability, Richfield/Enrich career features, CVs, interviews, internships, learnerships, applications, skills, projects, portfolios, networking, alumni mentorship, LinkedIn, qualifications, or study-to-career guidance. If a request is unrelated, reply that Enrich AI is limited to career and employability support and briefly list what it can help with. Provide relevant, encouraging, pragmatic advice tailored to the South African job market, graduate programmes, internships, learnerships, and POPIA guidelines. Be concise, friendly, professional.`;
     const chat = ai.chats.create({ model: 'gemini-3.8-flash', config: { systemInstruction: systemPrompt } });
-    const lastUserMessage = messages[messages.length - 1]?.content || 'Hello';
-    const response = await chat.sendMessage({ message: lastUserMessage });
+    const response = await chat.sendMessage({ message: lastUserMessage || 'Hello' });
     return res.json({ reply: response.text });
   } catch (error: any) {
     console.error('Error in chat API:', error);
     return res.json({ reply: "I am here to guide your career path at Richfield College! Ask me about CV writing, interview preparation, or internships." });
+  }
+});
+
+app.post('/api/gemini/admin-verification', async (req, res) => {
+  try {
+    const { business } = req.body;
+    const details = business?.businessDetails || {};
+    const fallbackChecks = [
+      { label: 'Recruiter email verified by Supabase Auth', ok: business?.verificationStatus !== 'unverified' },
+      { label: 'Organisation name supplied', ok: !!details.organizationName },
+      { label: 'Registration/CIPC reference supplied', ok: !!details.registrationNumber && !String(details.registrationNumber).toLowerCase().includes('pending') },
+      { label: 'Company website supplied', ok: !!details.website },
+      { label: 'Company description supplied', ok: !!details.companyDescription },
+      { label: 'Recruiter contact email supplied', ok: !!details.contactEmail },
+    ];
+    const fallbackScore = Math.round((fallbackChecks.filter((c) => c.ok).length / fallbackChecks.length) * 100);
+    const fallback = {
+      score: fallbackScore,
+      risk: fallbackScore >= 80 ? 'Low' : fallbackScore >= 55 ? 'Medium' : 'High',
+      checks: fallbackChecks,
+      summary: fallbackScore >= 80
+        ? 'The submission is internally consistent and contains most expected evidence. Manual external verification is still required before approval.'
+        : 'Some expected verification evidence is missing or incomplete. Request supporting information or independently verify the organisation before approval.',
+      disclaimer: 'AI-assisted review only. Final approval remains with the authorised Richfield administrator.',
+    };
+
+    const ai = getAIClient();
+    if (!ai) return res.json(fallback);
+
+    const prompt = `You assist a Richfield College administrator reviewing a company that wants to recruit students on Enrich.
+Do NOT approve or reject the company. Return JSON only with:
+- score: 0-100 completeness/readiness score
+- risk: Low, Medium, or High
+- checks: array of {label:string, ok:boolean}
+- summary: concise explanation of missing or inconsistent evidence
+- disclaimer: exactly "AI-assisted review only. Final approval remains with the authorised Richfield administrator."
+Only assess the information supplied. Do not claim you independently verified CIPC, domains, or external registries.
+Business submission: ${JSON.stringify(business, null, 2)}`;
+    const response = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+    const parsed = JSON.parse(response.text?.trim() || '{}');
+    return res.json({ ...fallback, ...parsed, disclaimer: fallback.disclaimer });
+  } catch (error: any) {
+    console.error('Error in admin-verification API:', error);
+    return res.status(200).json({
+      score: 60,
+      risk: 'Medium',
+      checks: [],
+      summary: 'The AI service was unavailable. Complete the verification manually using the submitted company evidence.',
+      disclaimer: 'AI-assisted review only. Final approval remains with the authorised Richfield administrator.',
+    });
   }
 });
 

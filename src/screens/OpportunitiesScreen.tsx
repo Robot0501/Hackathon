@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, TextInput, Modal, Alert } from 'react-native';
-import { Search, MapPin, Sparkles, CheckCircle2, Calendar, Clock } from 'lucide-react-native';
+import { Search, MapPin, Sparkles, CheckCircle2, Calendar, Clock, Users, Star, XCircle } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../theme';
-import { Opportunity } from '../types';
+import { JobApplication, Opportunity } from '../types';
+import { listApplicationsForOpportunity, updateApplicationStatus } from '../lib/dataService';
 
 export default function OpportunitiesScreen() {
   const { currentUser, opportunities, events, handleApplyOpportunity, handlePostOpportunity, handleRsvpEvent } = useApp();
@@ -14,6 +15,9 @@ export default function OpportunitiesScreen() {
   const [applyOpp, setApplyOpp] = useState<Opportunity | null>(null);
   const [applyForm, setApplyForm] = useState({ name: currentUser?.name || '', email: currentUser?.email || '', phone: '', availability: '', motivation: '' });
   const [isPosting, setIsPosting] = useState(false);
+  const [applicantsOpp, setApplicantsOpp] = useState<Opportunity | null>(null);
+  const [applicants, setApplicants] = useState<JobApplication[]>([]);
+  const [loadingApplicants, setLoadingApplicants] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState<'internship' | 'learnership' | 'graduate_vacancy' | 'part_time'>('graduate_vacancy');
   const [newLocation, setNewLocation] = useState('Johannesburg, Gauteng');
@@ -22,6 +26,8 @@ export default function OpportunitiesScreen() {
   const [newDesc, setNewDesc] = useState('');
 
   if (!currentUser) return null;
+  const isBusiness = currentUser.role === 'business';
+  const canApply = currentUser.role === 'student' || currentUser.role === 'alumni';
 
   const computeMatch = (opp: Opportunity) => {
     let score = 50;
@@ -33,7 +39,8 @@ export default function OpportunitiesScreen() {
   };
 
   const filtered = opportunities.filter((opp) => {
-    if (opp.status !== 'approved' && currentUser.role !== 'admin' && currentUser.id !== opp.companyId) return false;
+    if (isBusiness && opp.companyId !== currentUser.id) return false;
+    if (!isBusiness && opp.status !== 'approved' && currentUser.role !== 'admin' && currentUser.id !== opp.companyId) return false;
     if (filterType !== 'all' && opp.type !== filterType) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -42,10 +49,32 @@ export default function OpportunitiesScreen() {
     return true;
   });
 
+  const openApplicants = async (opp: Opportunity) => {
+    if (!isBusiness || opp.isShowcase) return;
+    setApplicantsOpp(opp);
+    setLoadingApplicants(true);
+    try {
+      setApplicants(await listApplicationsForOpportunity(opp.id));
+    } catch (error: any) {
+      Alert.alert('Could not load applicants', error?.message || 'Please try again.');
+    } finally {
+      setLoadingApplicants(false);
+    }
+  };
+
+  const changeApplicantStatus = async (applicationId: string, status: JobApplication['status']) => {
+    try {
+      await updateApplicationStatus(applicationId, status);
+      if (applicantsOpp) setApplicants(await listApplicationsForOpportunity(applicantsOpp.id));
+    } catch (error: any) {
+      Alert.alert('Could not update application', error?.message || 'Please try again.');
+    }
+  };
+
   const handleApplySubmit = () => {
     if (!applyOpp) return;
     if (!applyForm.phone || !applyForm.availability || !applyForm.motivation) { Alert.alert('Missing fields', 'Please fill all required fields'); return; }
-    handleApplyOpportunity(applyOpp.id);
+    handleApplyOpportunity(applyOpp.id, applyForm);
     setApplyOpp(null);
     setApplyForm({ name: currentUser.name, email: currentUser.email, phone: '', availability: '', motivation: '' });
   };
@@ -64,12 +93,12 @@ export default function OpportunitiesScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View><Text style={styles.headerTitle}>Career Hub & Placements</Text><Text style={styles.headerSub}>Smart matching tailored to your Richfield profile.</Text></View>
+        <View><Text style={styles.headerTitle}>{isBusiness ? 'Recruitment Hub' : 'Career Hub & Placements'}</Text><Text style={styles.headerSub}>{isBusiness ? 'Manage your opportunities and review applicants.' : 'Smart matching tailored to your Richfield profile.'}</Text></View>
         <View style={styles.tabPills}>
-          <TouchableOpacity onPress={() => setActiveTab('jobs')} style={[styles.pill, activeTab === 'jobs' && styles.pillActive]}><Text style={[styles.pillText, activeTab === 'jobs' && styles.pillTextActive]}>Jobs ({opportunities.length})</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setActiveTab('jobs')} style={[styles.pill, activeTab === 'jobs' && styles.pillActive]}><Text style={[styles.pillText, activeTab === 'jobs' && styles.pillTextActive]}>{isBusiness ? `My Opportunities (${filtered.length})` : `Jobs (${opportunities.length})`}</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => setActiveTab('events')} style={[styles.pill, activeTab === 'events' && styles.pillActive]}><Text style={[styles.pillText, activeTab === 'events' && styles.pillTextActive]}>Events ({events.length})</Text></TouchableOpacity>
         </View>
-        {(currentUser.role === 'business' || currentUser.role === 'admin') && activeTab === 'jobs' && (
+        {isBusiness && activeTab === 'jobs' && (
           <TouchableOpacity style={styles.postBtn} onPress={() => setIsPosting(true)}><Text style={styles.postBtnText}>+ Post Opportunity</Text></TouchableOpacity>
         )}
       </View>
@@ -99,14 +128,21 @@ export default function OpportunitiesScreen() {
                 <View key={opp.id} style={styles.jobCard}>
                   <View style={styles.jobHeader}>
                     <Image source={{ uri: opp.companyLogo }} style={styles.logo} />
-                    <View style={{ flex: 1 }}><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Text style={styles.jobTitle}>{opp.title}</Text>{opp.status === 'pending_approval' && <View style={styles.pending}><Text style={styles.pendingText}>Pending Review</Text></View>}</View><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}><Text style={styles.company}>{opp.companyName}</Text><View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><MapPin color={theme.colors.darkCyan} size={10} /><Text style={styles.location}>{opp.location}</Text></View><Text style={styles.salary}>{opp.stipendSalary}</Text></View></View>
-                    <View style={styles.matchBox}><Sparkles color={theme.colors.darkCyan} size={12} /><Text style={styles.matchText}>{match}% Match</Text></View>
+                    <View style={{ flex: 1 }}><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Text style={styles.jobTitle}>{opp.title}</Text>{opp.isShowcase && <View style={styles.sample}><Text style={styles.sampleText}>Presentation sample</Text></View>}{opp.status === 'pending_approval' && <View style={styles.pending}><Text style={styles.pendingText}>Pending Review</Text></View>}</View><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}><Text style={styles.company}>{opp.companyName}</Text><View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><MapPin color={theme.colors.darkCyan} size={10} /><Text style={styles.location}>{opp.location}</Text></View><Text style={styles.salary}>{opp.stipendSalary}</Text></View></View>
+                    {!isBusiness && <View style={styles.matchBox}><Sparkles color={theme.colors.darkCyan} size={12} /><Text style={styles.matchText}>{match}% Match</Text></View>}
                   </View>
                   <Text style={styles.jobDesc} numberOfLines={2}>{opp.description}</Text>
                   <View style={styles.skillsRow}>{opp.requiredSkills.map((s) => <View key={s} style={styles.skillTag}><Text style={styles.skillText}>{s}</Text></View>)}</View>
                   <View style={styles.jobActions}>
                     <TouchableOpacity style={styles.btnGhost} onPress={() => setSelectedOpp(opp)}><Text style={styles.btnGhostText}>View Details</Text></TouchableOpacity>
-                    <TouchableOpacity disabled={opp.applied} onPress={() => setApplyOpp(opp)} style={[styles.btnPrimary, opp.applied && { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' }]}>{opp.applied ? <><CheckCircle2 color={theme.colors.darkCyan} size={12} /><Text style={[styles.btnPrimaryText, { color: theme.colors.darkCyan }]}>Applied</Text></> : <Text style={styles.btnPrimaryText}>Apply</Text>}</TouchableOpacity>
+                    {isBusiness ? (
+                      <TouchableOpacity disabled={opp.isShowcase} onPress={() => void openApplicants(opp)} style={[styles.btnPrimary, opp.isShowcase && { backgroundColor: theme.colors.slate100, borderWidth: 1, borderColor: theme.colors.slate200 }]}>
+                        <Users color={opp.isShowcase ? theme.colors.slate500 : '#fff'} size={12} />
+                        <Text style={[styles.btnPrimaryText, opp.isShowcase && { color: theme.colors.slate500 }]}>{opp.isShowcase ? 'Sample Listing' : `View Applicants (${opp.applicantsCount || 0})`}</Text>
+                      </TouchableOpacity>
+                    ) : canApply ? (
+                      <TouchableOpacity disabled={opp.applied || opp.isShowcase} onPress={() => !opp.isShowcase && setApplyOpp(opp)} style={[styles.btnPrimary, opp.applied && { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' }, opp.isShowcase && { backgroundColor: theme.colors.slate100, borderWidth: 1, borderColor: theme.colors.slate200 }]}>{opp.isShowcase ? <Text style={[styles.btnPrimaryText, { color: theme.colors.slate500 }]}>Sample Listing</Text> : opp.applied ? <><CheckCircle2 color={theme.colors.darkCyan} size={12} /><Text style={[styles.btnPrimaryText, { color: theme.colors.darkCyan }]}>Applied</Text></> : <Text style={styles.btnPrimaryText}>Apply</Text>}</TouchableOpacity>
+                    ) : null}
                   </View>
                 </View>
               );
@@ -118,7 +154,7 @@ export default function OpportunitiesScreen() {
               <View key={ev.id} style={styles.eventCard}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
                   <View style={{ flex: 1 }}><View style={styles.eventTag}><Text style={styles.eventTagText}>{ev.type.replace('_', ' ')}</Text></View><Text style={styles.eventTitle}>{ev.title}</Text><Text style={styles.eventDesc}>{ev.description}</Text></View>
-                  <TouchableOpacity onPress={() => handleRsvpEvent(ev.id)} style={[styles.rsvpBtn, ev.hasRsvp ? styles.rsvpActive : styles.rsvpIdle]}><Text style={[styles.rsvpText, ev.hasRsvp && styles.rsvpTextActive]}>{ev.hasRsvp ? 'RSVP Confirmed' : 'RSVP Free'}</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={ev.isShowcase} onPress={() => !ev.isShowcase && handleRsvpEvent(ev.id)} style={[styles.rsvpBtn, ev.hasRsvp ? styles.rsvpActive : styles.rsvpIdle, ev.isShowcase && { opacity: 0.6 }]}><Text style={[styles.rsvpText, ev.hasRsvp && styles.rsvpTextActive]}>{ev.isShowcase ? 'Presentation sample' : ev.hasRsvp ? 'RSVP Confirmed' : 'RSVP Free'}</Text></TouchableOpacity>
                 </View>
                 <View style={styles.eventMeta}><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Calendar color={theme.colors.darkCyan} size={12} /><Text style={styles.metaText}>{ev.date}</Text></View><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><Clock color={theme.colors.slate400} size={12} /><Text style={styles.metaText}>{ev.time}</Text></View><View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><MapPin color={theme.colors.slate400} size={12} /><Text style={styles.metaText}>{ev.location}</Text></View><Text style={styles.metaSub}>{ev.rsvpCount} attending</Text></View>
               </View>
@@ -138,7 +174,14 @@ export default function OpportunitiesScreen() {
           <Text style={styles.sectionLabel}>Role Description</Text><Text style={styles.modalText}>{selectedOpp?.description}</Text>
           <Text style={styles.sectionLabel}>Responsibilities</Text>{selectedOpp?.responsibilities.map((r, i) => <Text key={i} style={styles.bullet}>• {r}</Text>)}
           <Text style={styles.sectionLabel}>Required Qualifications</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{selectedOpp?.requiredProgramme.map((p) => <View key={p} style={styles.qualTag}><Text style={styles.qualText}>{p}</Text></View>)}</View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.colors.slate200, paddingTop: 12, marginTop: 12 }}><Text style={styles.closes}>Closes: {selectedOpp?.closingDate}</Text><TouchableOpacity disabled={selectedOpp?.applied} onPress={() => { setApplyOpp(selectedOpp); setSelectedOpp(null); }} style={styles.btnPrimary}><Text style={styles.btnPrimaryText}>{selectedOpp?.applied ? 'Submitted' : 'Apply Now'}</Text></TouchableOpacity></View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.colors.slate200, paddingTop: 12, marginTop: 12, alignItems: 'center' }}>
+            <Text style={styles.closes}>Closes: {selectedOpp?.closingDate}</Text>
+            {isBusiness && selectedOpp ? (
+              <TouchableOpacity onPress={() => { const opp = selectedOpp; setSelectedOpp(null); void openApplicants(opp); }} style={styles.btnPrimary}><Users color="#fff" size={12} /><Text style={styles.btnPrimaryText}>Applicants ({selectedOpp.applicantsCount || 0})</Text></TouchableOpacity>
+            ) : canApply && selectedOpp && !selectedOpp.isShowcase ? (
+              <TouchableOpacity disabled={selectedOpp.applied} onPress={() => { setApplyOpp(selectedOpp); setSelectedOpp(null); }} style={styles.btnPrimary}><Text style={styles.btnPrimaryText}>{selectedOpp.applied ? 'Submitted' : 'Apply Now'}</Text></TouchableOpacity>
+            ) : null}
+          </View>
         </View></View>
       </Modal>
 
@@ -152,6 +195,28 @@ export default function OpportunitiesScreen() {
           <Text style={styles.label}>Availability</Text><TextInput value={applyForm.availability} onChangeText={(v) => setApplyForm({ ...applyForm, availability: v })} style={styles.input} placeholder="Available from 1 Nov 2026" placeholderTextColor={theme.colors.slate400} />
           <Text style={styles.label}>Motivation</Text><TextInput value={applyForm.motivation} onChangeText={(v) => setApplyForm({ ...applyForm, motivation: v })} style={[styles.input, { height: 100, textAlignVertical: 'top', paddingTop: 10 }]} multiline placeholder="Why are you interested?" placeholderTextColor={theme.colors.slate400} />
           <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end', marginTop: 12 }}><TouchableOpacity onPress={() => setApplyOpp(null)} style={styles.btnGhost}><Text style={styles.btnGhostText}>Cancel</Text></TouchableOpacity><TouchableOpacity onPress={handleApplySubmit} style={styles.btnPrimary}><Text style={styles.btnPrimaryText}>Submit Application</Text></TouchableOpacity></View>
+        </View></ScrollView></View>
+      </Modal>
+
+      {/* Recruiter Applicants Modal */}
+      <Modal visible={!!applicantsOpp} transparent animationType="slide" onRequestClose={() => setApplicantsOpp(null)}>
+        <View style={styles.modalOverlay}><ScrollView contentContainerStyle={{ padding: 16 }}><View style={[styles.modalCard, { maxHeight: undefined }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.slate100, paddingBottom: 8 }}>
+            <View style={{ flex: 1 }}><Text style={styles.modalTitle}>Applicants</Text><Text style={styles.modalSub}>{applicantsOpp?.title} • {applicants.length} application(s)</Text></View>
+            <TouchableOpacity onPress={() => setApplicantsOpp(null)}><Text style={styles.close}>✕</Text></TouchableOpacity>
+          </View>
+          {loadingApplicants ? <Text style={styles.modalText}>Loading applicants...</Text> : applicants.length === 0 ? <View style={styles.notice}><Text style={styles.noticeText}>No applications have been submitted yet.</Text></View> : applicants.map((app) => (
+            <View key={app.id} style={styles.applicantCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><View style={{ flex: 1 }}><Text style={styles.applicantName}>{app.fullName || 'Richfield applicant'}</Text><Text style={styles.applicantMeta}>{app.email} • {app.phone || 'No phone'}</Text></View><View style={styles.statusBadge}><Text style={styles.statusBadgeText}>{app.status}</Text></View></View>
+              <Text style={styles.applicantLabel}>Availability</Text><Text style={styles.applicantText}>{app.availability || 'Not supplied'}</Text>
+              <Text style={styles.applicantLabel}>Motivation</Text><Text style={styles.applicantText}>{app.motivation || 'Not supplied'}</Text>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                <TouchableOpacity onPress={() => void changeApplicantStatus(app.id, 'reviewing')} style={styles.btnGhost}><Text style={styles.btnGhostText}>Reviewing</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => void changeApplicantStatus(app.id, 'shortlisted')} style={styles.btnPrimary}><Star color="#fff" size={12} /><Text style={styles.btnPrimaryText}>Shortlist</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => void changeApplicantStatus(app.id, 'rejected')} style={styles.btnRejectMini}><XCircle color="#BE123C" size={12} /><Text style={styles.btnRejectMiniText}>Reject</Text></TouchableOpacity>
+              </View>
+            </View>
+          ))}
         </View></ScrollView></View>
       </Modal>
 
@@ -196,6 +261,8 @@ const styles = StyleSheet.create({
   jobHeader: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   logo: { width: 44, height: 44, borderRadius: 12 },
   jobTitle: { fontWeight: '800', fontSize: 12, color: theme.colors.navy, flexShrink: 1 },
+  sample: { backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  sampleText: { color: '#9A3412', fontSize: 8, fontWeight: '800' },
   pending: { backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#FDE68A' },
   pendingText: { fontSize: 8, fontWeight: '800', color: '#92400E' },
   company: { fontWeight: '700', fontSize: 11, color: theme.colors.slate700 },
@@ -245,6 +312,15 @@ const styles = StyleSheet.create({
   typeActive: { backgroundColor: theme.colors.navy, borderColor: theme.colors.navy },
   typeText: { fontSize: 10, fontWeight: '700', color: theme.colors.slate600, textTransform: 'capitalize' },
   typeActiveText: { color: '#fff' },
+  applicantCard: { backgroundColor: theme.colors.slate50, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.slate200, gap: 5 },
+  applicantName: { fontWeight: '900', fontSize: 12, color: theme.colors.navy },
+  applicantMeta: { fontSize: 9, color: theme.colors.slate500, marginTop: 2 },
+  applicantLabel: { fontSize: 9, color: theme.colors.slate400, fontWeight: '800', textTransform: 'uppercase', marginTop: 4 },
+  applicantText: { fontSize: 11, color: theme.colors.slate700, lineHeight: 16 },
+  statusBadge: { backgroundColor: '#EEF2FF', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, alignSelf: 'flex-start' },
+  statusBadgeText: { color: theme.colors.delftBlue, fontSize: 9, fontWeight: '800', textTransform: 'capitalize' },
+  btnRejectMini: { flexDirection: 'row', gap: 4, borderWidth: 1, borderColor: '#FECDD3', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, alignItems: 'center', backgroundColor: '#FFF1F2' },
+  btnRejectMiniText: { fontSize: 10, fontWeight: '800', color: '#BE123C' },
   notice: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', padding: 8, borderRadius: 8, marginTop: 8 },
   noticeText: { fontSize: 10, color: '#92400E' },
 });

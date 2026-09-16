@@ -1,8 +1,49 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { MOCK_USERS, MOCK_OPPORTUNITIES, MOCK_POSTS, MOCK_EVENTS, INITIAL_NOTIFICATIONS } from '../data/mockData';
-import { UserProfile, Post, Opportunity, RichfieldEvent, ChatMessage, NotificationItem } from '../types';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  ChatMessage,
+  NotificationItem,
+  Opportunity,
+  Post,
+  QuestionThread,
+  RichfieldEvent,
+  UserProfile,
+} from '../types';
+import { getProfile, signOut as authSignOut } from '../lib/authService';
+import { supabase } from '../lib/supabase';
+import {
+  ApplicationFormData,
+  addComment,
+  addEndorsement,
+  adminSetBusinessStatus,
+  answerQuestion,
+  applyToOpportunity,
+  askQuestion,
+  broadcastAnnouncement,
+  createEvent,
+  createOpportunity,
+  createPost,
+  deleteEvent,
+  deletePost,
+  listConnections,
+  listEvents,
+  listMessages,
+  listNotifications,
+  listOpportunities,
+  listPosts,
+  listProfiles,
+  listQuestions,
+  sendConnectionRequest,
+  sendMessage,
+  setConnectionStatus,
+  setOpportunityStatus,
+  toggleEventRsvp,
+  togglePostLike,
+  updateOwnProfile,
+} from '../lib/dataService';
 
-type Connections = { [userId: string]: 'pending' | 'accepted' | 'declined' };
+export type ConnectionState = 'pending_incoming' | 'pending_outgoing' | 'accepted' | 'declined';
+type Connections = { [userId: string]: ConnectionState };
 
 interface AppContextType {
   users: UserProfile[];
@@ -21,11 +62,17 @@ interface AppContextType {
   setConnections: React.Dispatch<React.SetStateAction<Connections>>;
   chatMessages: ChatMessage[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  // actions
+  questions: QuestionThread[];
+  isBootstrapping: boolean;
+  isFirstVisit: boolean;
+  markWelcomeSeen: () => void;
+  refreshSession: () => Promise<UserProfile | null>;
+  refreshAll: () => Promise<void>;
+  signOutUser: () => Promise<void>;
   handleAddPost: (p: Post) => void;
   handleLikePost: (id: string) => void;
   handleAddComment: (postId: string, text: string) => void;
-  handleApplyOpportunity: (oppId: string) => void;
+  handleApplyOpportunity: (oppId: string, form?: ApplicationFormData) => void;
   handlePostOpportunity: (opp: Opportunity) => void;
   handleRsvpEvent: (id: string) => void;
   handleSendConnectionRequest: (targetUserId: string) => void;
@@ -43,237 +90,405 @@ interface AppContextType {
   handleDeleteEvent: (eventId: string) => void;
   handleBroadcastAnnouncement: (title: string, message: string, target: 'all' | 'students' | 'alumni' | 'business') => void;
   handleRegisterSuccess: (newUser: UserProfile) => void;
+  handleAskQuestion: (title: string, body: string) => void;
+  handleAnswerQuestion: (questionId: string, content: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const [users, setUsers] = useState<UserProfile[]>(MOCK_USERS);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [posts, setPosts] = useState<Post[]>(MOCK_POSTS);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>(MOCK_OPPORTUNITIES);
-  const [events, setEvents] = useState<RichfieldEvent[]>(MOCK_EVENTS);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
-  const [connections, setConnections] = useState<Connections>({ 'user-alumni-1': 'accepted' });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg-init-1',
-      senderId: 'user-alumni-1',
-      receiverId: 'user-student-1',
-      text: 'Sawubona! Impressive work on your React portfolio. Are you attending the Richfield recruitment session next Tuesday?',
-      timestamp: 'Yesterday at 14:20',
-    },
-    {
-      id: 'msg-init-2',
-      senderId: 'user-student-1',
-      receiverId: 'user-alumni-1',
-      text: 'Thanks Lerato! Yes, I registered and uploaded my pitch video on Enrich. Would love any tips you have for standard graduate assessments.',
-      timestamp: 'Yesterday at 15:05',
-    },
-  ]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [events, setEvents] = useState<RichfieldEvent[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [connections, setConnections] = useState<Connections>({});
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [questions, setQuestions] = useState<QuestionThread[]>([]);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isFirstVisit, setIsFirstVisit] = useState(false);
 
-  const handleAddPost = (newPost: Post) => setPosts((prev) => [newPost, ...prev]);
-  const handleLikePost = (postId: string) => {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const hasLiked = !p.hasLiked;
-          return { ...p, hasLiked, likes: hasLiked ? p.likes + 1 : p.likes - 1 };
-        }
-        return p;
-      })
-    );
-  };
-  const handleAddComment = (postId: string, commentText: string) => {
+  const clearData = useCallback(() => {
+    setCurrentUser(null);
+    setUsers([]);
+    setPosts([]);
+    setOpportunities([]);
+    setEvents([]);
+    setNotifications([]);
+    setConnections({});
+    setChatMessages([]);
+    setQuestions([]);
+    setIsFirstVisit(false);
+  }, []);
+
+  const welcomeKey = (userId: string) => `enrich:welcome-seen:${userId}`;
+
+  const syncWelcomeState = useCallback(async (userId: string) => {
+    const seen = await AsyncStorage.getItem(welcomeKey(userId));
+    setIsFirstVisit(seen !== '1');
+  }, []);
+
+  const markWelcomeSeen = useCallback(() => {
     if (!currentUser) return;
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const newComment = {
-            id: `comm-${Date.now()}`,
-            authorId: currentUser.id,
-            authorName: currentUser.name,
-            authorRole: currentUser.role,
-            authorAvatar: currentUser.avatar,
-            content: commentText,
-            timestamp: 'Just now',
-          };
-          return { ...p, comments: [...p.comments, newComment] };
-        }
-        return p;
-      })
-    );
-  };
-  const handleApplyOpportunity = (oppId: string) => {
-    setOpportunities((prev) => prev.map((o) => (o.id === oppId ? { ...o, applied: true, applicantsCount: o.applicantsCount + 1 } : o)));
-    const targetOpp = opportunities.find((o) => o.id === oppId);
-    const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      title: 'Application Dispatched',
-      message: `Your verified dossier has been submitted for: ${targetOpp?.title || 'Graduate Role'}.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'opportunity',
-    };
-    setNotifications((prev) => [notif, ...prev]);
-  };
-  const handlePostOpportunity = (newOpp: Opportunity) => {
-    setOpportunities((prev) => [newOpp, ...prev]);
-    if (newOpp.status === 'pending_approval') {
-      const notif: NotificationItem = {
-        id: `notif-biz-${Date.now()}`,
-        title: 'Opportunity Under Vetting',
-        message: `Your posting "${newOpp.title}" has been submitted for approval.`,
-        timestamp: 'Just now',
-        read: false,
-        type: 'opportunity',
-      };
-      setNotifications((prev) => [notif, ...prev]);
+    // Keep the current session showing "Welcome". The next login will show
+    // "Welcome back" because this flag is now persisted on the device.
+    void AsyncStorage.setItem(welcomeKey(currentUser.id), '1');
+  }, [currentUser]);
+
+  const loadDataFor = useCallback(async (profile: UserProfile) => {
+    const allProfiles = await listProfiles();
+    const visibleProfiles = profile.role === 'admin'
+      ? allProfiles
+      : allProfiles.filter((u) => (u.verificationStatus === 'verified' || u.id === profile.id) && u.role !== 'admin');
+
+    const [postData, opportunityData, eventData, connectionData, messageData, notificationData, questionData] = await Promise.all([
+      listPosts(profile.id, visibleProfiles),
+      listOpportunities(profile.id),
+      listEvents(profile.id),
+      listConnections(profile.id),
+      listMessages(profile.id),
+      listNotifications(profile.id),
+      listQuestions(visibleProfiles),
+    ]);
+
+    setUsers(visibleProfiles);
+    setPosts(postData);
+    setOpportunities(opportunityData);
+    setEvents(eventData);
+    setConnections(connectionData);
+    setChatMessages(messageData);
+    setNotifications(notificationData);
+    setQuestions(questionData);
+  }, []);
+
+  const refreshSession = useCallback(async (): Promise<UserProfile | null> => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const authUser = data.session?.user;
+    if (!authUser) {
+      clearData();
+      return null;
     }
-  };
-  const handleRsvpEvent = (eventId: string) => {
-    setEvents((prev) =>
-      prev.map((ev) =>
-        ev.id === eventId ? { ...ev, hasRsvp: !ev.hasRsvp, rsvpCount: ev.hasRsvp ? ev.rsvpCount - 1 : ev.rsvpCount + 1 } : ev
-      )
-    );
-  };
-  const handleSendConnectionRequest = (targetUserId: string) => {
-    setConnections((prev) => ({ ...prev, [targetUserId]: 'pending' }));
-    const target = users.find((u) => u.id === targetUserId);
-    const notif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      title: 'Connection Request Sent',
-      message: `Invitation sent to ${target?.name || 'Richfield member'}.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'connection',
-    };
-    setNotifications((prev) => [notif, ...prev]);
-  };
-  const handleAcceptConnectionRequest = (targetUserId: string) => setConnections((prev) => ({ ...prev, [targetUserId]: 'accepted' }));
-  const handleDeclineConnectionRequest = (targetUserId: string) => setConnections((prev) => ({ ...prev, [targetUserId]: 'declined' }));
-  const handleSendMessage = (receiverId: string, text: string) => {
+
+    const profile = await getProfile(authUser.id);
+    if (!profile) {
+      setCurrentUser(null);
+      return null;
+    }
+
+    const allowed = profile.role === 'admin'
+      ? profile.verificationStatus === 'verified'
+      : profile.verificationStatus === 'verified';
+
+    if (!allowed) {
+      setCurrentUser(null);
+      return profile;
+    }
+
+    await syncWelcomeState(profile.id);
+    setCurrentUser(profile);
+    await loadDataFor(profile);
+    return profile;
+  }, [clearData, loadDataFor, syncWelcomeState]);
+
+  const refreshAll = useCallback(async () => {
     if (!currentUser) return;
-    const newMsg: ChatMessage = { id: `msg-${Date.now()}`, senderId: currentUser.id, receiverId, text, timestamp: 'Just now' };
-    setChatMessages((prev) => [...prev, newMsg]);
+    const fresh = await getProfile(currentUser.id);
+    if (!fresh) return;
+    setCurrentUser(fresh);
+    await loadDataFor(fresh);
+  }, [currentUser, loadDataFor]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const boot = async () => {
+      try {
+        await refreshSession();
+      } catch (error) {
+        console.error('Supabase startup failed:', error);
+        if (mounted) clearData();
+      } finally {
+        if (mounted) setIsBootstrapping(false);
+      }
+    };
+
+    void boot();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        clearData();
+        return;
+      }
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        setTimeout(() => void refreshSession().catch((e) => console.error('Session refresh failed:', e)), 0);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [clearData, refreshSession]);
+
+  const signOutUser = async () => {
+    await authSignOut();
+    clearData();
   };
+
+  const handleAddPost = (newPost: Post) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await createPost(currentUser.id, newPost);
+        setPosts(await listPosts(currentUser.id, users));
+      } catch (error) { console.error('Create post failed:', error); }
+    })();
+  };
+
+  const handleLikePost = (postId: string) => {
+    if (!currentUser) return;
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, hasLiked: !p.hasLiked, likes: p.likes + (p.hasLiked ? -1 : 1) } : p));
+    void togglePostLike(postId, currentUser.id, !!post.hasLiked).catch(async (error) => {
+      console.error('Like failed:', error);
+      setPosts(await listPosts(currentUser.id, users));
+    });
+  };
+
+  const handleAddComment = (postId: string, text: string) => {
+    if (!currentUser || !text.trim()) return;
+    void (async () => {
+      try {
+        await addComment(postId, currentUser.id, text);
+        setPosts(await listPosts(currentUser.id, users));
+      } catch (error) { console.error('Comment failed:', error); }
+    })();
+  };
+
+  const handleApplyOpportunity = (oppId: string, form: ApplicationFormData = {}) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await applyToOpportunity(oppId, currentUser.id, {
+          name: form.name || currentUser.name,
+          email: form.email || currentUser.email,
+          phone: form.phone || '',
+          availability: form.availability || '',
+          motivation: form.motivation || '',
+        });
+        setOpportunities(await listOpportunities(currentUser.id));
+        setNotifications(await listNotifications(currentUser.id));
+      } catch (error) { console.error('Application failed:', error); }
+    })();
+  };
+
+  const handlePostOpportunity = (opp: Opportunity) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await createOpportunity(currentUser.id, opp);
+        setOpportunities(await listOpportunities(currentUser.id));
+      } catch (error) { console.error('Post opportunity failed:', error); }
+    })();
+  };
+
+  const handleRsvpEvent = (eventId: string) => {
+    if (!currentUser) return;
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    void (async () => {
+      try {
+        await toggleEventRsvp(eventId, currentUser.id, event.hasRsvp);
+        setEvents(await listEvents(currentUser.id));
+      } catch (error) { console.error('RSVP failed:', error); }
+    })();
+  };
+
+  const handleSendConnectionRequest = (targetUserId: string) => {
+    if (!currentUser) return;
+    setConnections((prev) => ({ ...prev, [targetUserId]: 'pending_outgoing' }));
+    void sendConnectionRequest(currentUser.id, targetUserId).catch((error) => console.error('Connection request failed:', error));
+  };
+
+  const handleAcceptConnectionRequest = (targetUserId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await setConnectionStatus(currentUser.id, targetUserId, 'accepted');
+        setConnections(await listConnections(currentUser.id));
+      } catch (error) { console.error('Accept connection failed:', error); }
+    })();
+  };
+
+  const handleDeclineConnectionRequest = (targetUserId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await setConnectionStatus(currentUser.id, targetUserId, 'declined');
+        setConnections(await listConnections(currentUser.id));
+      } catch (error) { console.error('Decline connection failed:', error); }
+    })();
+  };
+
+  const handleSendMessage = (receiverId: string, text: string) => {
+    if (!currentUser || !text.trim()) return;
+    void (async () => {
+      try {
+        await sendMessage(currentUser.id, receiverId, text);
+        setChatMessages(await listMessages(currentUser.id));
+      } catch (error) { console.error('Message failed:', error); }
+    })();
+  };
+
   const handleUpdateProfile = (updated: Partial<UserProfile>) => {
     if (!currentUser) return;
-    const updatedUser = { ...currentUser, ...updated };
-    setCurrentUser(updatedUser);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+    const optimistic = { ...currentUser, ...updated };
+    setCurrentUser(optimistic);
+    setUsers((prev) => prev.map((u) => u.id === optimistic.id ? optimistic : u));
+    void (async () => {
+      try {
+        const saved = await updateOwnProfile(currentUser.id, updated);
+        setCurrentUser(saved);
+        const refreshed = await listProfiles();
+        setUsers(saved.role === 'admin' ? refreshed : refreshed.filter((u) => (u.verificationStatus === 'verified' || u.id === saved.id) && u.role !== 'admin'));
+      } catch (error) { console.error('Profile update failed:', error); }
+    })();
   };
+
   const handleAddEndorsement = (targetUserId: string, skill: string) => {
-    if (!currentUser) return;
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === targetUserId) {
-          const existing = u.endorsements.find((e) => e.skill.toLowerCase() === skill.toLowerCase());
-          if (existing) {
-            if (existing.endorsedBy.includes(currentUser.name)) return u;
-            return {
-              ...u,
-              endorsements: u.endorsements.map((e) =>
-                e.skill.toLowerCase() === skill.toLowerCase()
-                  ? { ...e, count: e.count + 1, endorsedBy: [...e.endorsedBy, currentUser.name] }
-                  : e
-              ),
-            };
-          } else {
-            return { ...u, endorsements: [...u.endorsements, { skill, count: 1, endorsedBy: [currentUser.name] }] };
-          }
-        }
-        return u;
-      })
-    );
+    if (!currentUser || !skill.trim() || targetUserId === currentUser.id) return;
+    void (async () => {
+      try {
+        await addEndorsement(targetUserId, currentUser.id, skill);
+        const refreshed = await listProfiles();
+        setUsers(currentUser.role === 'admin' ? refreshed : refreshed.filter((u) => (u.verificationStatus === 'verified' || u.id === currentUser.id) && u.role !== 'admin'));
+      } catch (error) { console.error('Endorsement failed:', error); }
+    })();
   };
+
   const handleApproveBusiness = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, verificationStatus: 'verified', businessDetails: u.businessDetails ? { ...u.businessDetails, approvalStatus: 'approved' } : undefined } : u
-      )
-    );
+    void (async () => {
+      try {
+        await adminSetBusinessStatus(userId, true);
+        setUsers(await listProfiles());
+      } catch (error) { console.error('Business approval failed:', error); }
+    })();
   };
+
   const handleRejectBusiness = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, verificationStatus: 'rejected', businessDetails: u.businessDetails ? { ...u.businessDetails, approvalStatus: 'rejected' } : undefined } : u
-      )
-    );
+    void (async () => {
+      try {
+        await adminSetBusinessStatus(userId, false);
+        setUsers(await listProfiles());
+      } catch (error) { console.error('Business rejection failed:', error); }
+    })();
   };
-  const handleApproveOpportunity = (oppId: string) => setOpportunities((prev) => prev.map((o) => (o.id === oppId ? { ...o, status: 'approved' } : o)));
-  const handleRejectOpportunity = (oppId: string) => setOpportunities((prev) => prev.map((o) => (o.id === oppId ? { ...o, status: 'rejected' } : o)));
-  const handleDeletePost = (postId: string) => setPosts((prev) => prev.filter((p) => p.id !== postId));
-  const handleCreateEvent = (event: RichfieldEvent) => setEvents((prev) => [event, ...prev]);
-  const handleDeleteEvent = (eventId: string) => setEvents((prev) => prev.filter((e) => e.id !== eventId));
+
+  const handleApproveOpportunity = (oppId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await setOpportunityStatus(oppId, 'approved');
+        setOpportunities(await listOpportunities(currentUser.id));
+      } catch (error) { console.error('Opportunity approval failed:', error); }
+    })();
+  };
+
+  const handleRejectOpportunity = (oppId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await setOpportunityStatus(oppId, 'rejected');
+        setOpportunities(await listOpportunities(currentUser.id));
+      } catch (error) { console.error('Opportunity rejection failed:', error); }
+    })();
+  };
+
+  const handleDeletePost = (postId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await deletePost(postId);
+        setPosts(await listPosts(currentUser.id, users));
+      } catch (error) { console.error('Delete post failed:', error); }
+    })();
+  };
+
+  const handleCreateEvent = (event: RichfieldEvent) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await createEvent(currentUser.id, event);
+        setEvents(await listEvents(currentUser.id));
+      } catch (error) { console.error('Create event failed:', error); }
+    })();
+  };
+
+  const handleDeleteEvent = (eventId: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await deleteEvent(eventId);
+        setEvents(await listEvents(currentUser.id));
+      } catch (error) { console.error('Delete event failed:', error); }
+    })();
+  };
+
   const handleBroadcastAnnouncement = (title: string, message: string, target: 'all' | 'students' | 'alumni' | 'business') => {
-    const newNotif: NotificationItem = {
-      id: `ann-${Date.now()}`,
-      title: `Richfield Notice: ${title}`,
-      message,
-      timestamp: 'Just now',
-      read: false,
-      type: 'announcement',
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await broadcastAnnouncement(title, message, target);
+        setNotifications(await listNotifications(currentUser.id));
+      } catch (error) { console.error('Broadcast failed:', error); }
+    })();
   };
+
+  const handleAskQuestion = (title: string, body: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await askQuestion(currentUser.id, title, body);
+        setQuestions(await listQuestions(users));
+      } catch (error) { console.error('Question failed:', error); }
+    })();
+  };
+
+  const handleAnswerQuestion = (questionId: string, content: string) => {
+    if (!currentUser) return;
+    void (async () => {
+      try {
+        await answerQuestion(currentUser.id, questionId, content);
+        setQuestions(await listQuestions(users));
+      } catch (error) { console.error('Answer failed:', error); }
+    })();
+  };
+
+  // Kept for compatibility with older UI code. Real registration now uses Supabase Auth.
   const handleRegisterSuccess = (newUser: UserProfile) => {
-    setUsers((prev) => [newUser, ...prev]);
+    setIsFirstVisit(true);
     setCurrentUser(newUser);
-    const welcomeNotif: NotificationItem = {
-      id: `welcome-${Date.now()}`,
-      title: 'Verification Confirmed',
-      message: `Welcome to Enrich, ${newUser.name}! Your ${newUser.role} profile is active.`,
-      timestamp: 'Just now',
-      read: false,
-      type: 'verification',
-    };
-    setNotifications((prev) => [welcomeNotif, ...prev]);
+    setUsers((prev) => prev.some((u) => u.id === newUser.id) ? prev.map((u) => u.id === newUser.id ? newUser : u) : [newUser, ...prev]);
   };
 
   return (
-    <AppContext.Provider
-      value={{
-        users,
-        setUsers,
-        currentUser,
-        setCurrentUser,
-        posts,
-        setPosts,
-        opportunities,
-        setOpportunities,
-        events,
-        setEvents,
-        notifications,
-        setNotifications,
-        connections,
-        setConnections,
-        chatMessages,
-        setChatMessages,
-        handleAddPost,
-        handleLikePost,
-        handleAddComment,
-        handleApplyOpportunity,
-        handlePostOpportunity,
-        handleRsvpEvent,
-        handleSendConnectionRequest,
-        handleAcceptConnectionRequest,
-        handleDeclineConnectionRequest,
-        handleSendMessage,
-        handleUpdateProfile,
-        handleAddEndorsement,
-        handleApproveBusiness,
-        handleRejectBusiness,
-        handleApproveOpportunity,
-        handleRejectOpportunity,
-        handleDeletePost,
-        handleCreateEvent,
-        handleDeleteEvent,
-        handleBroadcastAnnouncement,
-        handleRegisterSuccess,
-      }}
-    >
+    <AppContext.Provider value={{
+      users, setUsers, currentUser, setCurrentUser,
+      posts, setPosts, opportunities, setOpportunities,
+      events, setEvents, notifications, setNotifications,
+      connections, setConnections, chatMessages, setChatMessages,
+      questions, isBootstrapping, isFirstVisit, markWelcomeSeen, refreshSession, refreshAll, signOutUser,
+      handleAddPost, handleLikePost, handleAddComment, handleApplyOpportunity,
+      handlePostOpportunity, handleRsvpEvent, handleSendConnectionRequest,
+      handleAcceptConnectionRequest, handleDeclineConnectionRequest, handleSendMessage,
+      handleUpdateProfile, handleAddEndorsement, handleApproveBusiness, handleRejectBusiness,
+      handleApproveOpportunity, handleRejectOpportunity, handleDeletePost, handleCreateEvent,
+      handleDeleteEvent, handleBroadcastAnnouncement, handleRegisterSuccess,
+      handleAskQuestion, handleAnswerQuestion,
+    }}>
       {children}
     </AppContext.Provider>
   );
