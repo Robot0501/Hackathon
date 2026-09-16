@@ -1,8 +1,14 @@
 node_modules/
 build/
 dist/
+.expo/
+.expo-shared/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+# Expo
+web-build/
+# EAS
+eas-build/
